@@ -28,14 +28,14 @@ impl ClassifierLogger for FileLogger {
         };
         let _ = writeln!(
             f,
-            "incoming: session_id={} spawn_id={:?} parent={:?} call_id={:?} action_kind={} working_dir={} action={}",
+            "incoming: session_id={} spawn_id={:?} parent_id={:?} call_id={:?} kind={} working_dir={} args={}",
             input.session.id,
             input.session.spawn_id,
-            input.parent_session_id,
-            input.call_id,
-            input.action_kind,
+            input.session.parent_id,
+            input.action.call_id,
+            input.action.kind,
             input.working_dir.display(),
-            input.action,
+            input.action.args,
         );
     }
 }

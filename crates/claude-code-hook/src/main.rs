@@ -1,7 +1,7 @@
 use std::io::Read;
 use std::path::PathBuf;
 
-use domain::{ClassificationInput, Classifier, Decision, Session};
+use domain::{Action, ClassificationInput, Classifier, Decision, Session};
 use file_logger::FileLogger;
 
 #[derive(serde::Deserialize)]
@@ -21,7 +21,7 @@ fn main() {
         .expect("read stdin");
     let payload: HookPayload = serde_json::from_str(&buf).expect("parse hook payload");
 
-    let parent_session_id = std::env::var("CLAUDE_SESSION_ID")
+    let parent_id = std::env::var("CLAUDE_SESSION_ID")
         .ok()
         .filter(|p| p != &payload.session_id);
 
@@ -29,11 +29,13 @@ fn main() {
         session: Session {
             id: payload.session_id,
             spawn_id: payload.agent_id,
+            parent_id,
         },
-        parent_session_id,
-        call_id: payload.tool_use_id,
-        action_kind: payload.tool_name,
-        action: payload.tool_input.to_string(),
+        action: Action {
+            call_id: payload.tool_use_id,
+            kind: payload.tool_name,
+            args: payload.tool_input.to_string(),
+        },
         working_dir: payload.cwd,
     };
 

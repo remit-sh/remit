@@ -3,14 +3,18 @@ use std::path::PathBuf;
 pub struct Session {
     pub id: String,
     pub spawn_id: Option<String>,
+    pub parent_id: Option<String>,
+}
+
+pub struct Action {
+    pub call_id: Option<String>,
+    pub kind: String,
+    pub args: String,
 }
 
 pub struct ClassificationInput {
     pub session: Session,
-    pub parent_session_id: Option<String>,
-    pub call_id: Option<String>,
-    pub action_kind: String,
-    pub action: String,
+    pub action: Action,
     pub working_dir: PathBuf,
 }
 
