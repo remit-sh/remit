@@ -1,0 +1,11 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/domain",
+    "crates/file-logger",
+    "crates/claude-code-hook",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
