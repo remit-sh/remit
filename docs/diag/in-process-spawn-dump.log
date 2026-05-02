@@ -1,0 +1,464 @@
+
+========= 2026-05-02T23:59:45+0200
+ =========
+hook pid:  70774
+ppid:      27898  claude --session-id a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58
+gppid:     1424  tmux new-session -d -s agentdeck_inbox_f16007f9 -c /Users/paul.grimshaw/dev/home bash -c 'export COLORFGBG='\''15;0'\'' && source ~/.remit/init.sh && unset TELEGRAM_STATE_DIR && AGENTDECK_INSTANCE_ID=398ce3df-1777024088 claude --resume 0ed9d2fb-6e29-4d71-aa49-149119ec54f0'
+ggppid:    1  /sbin/launchd
+
+env (sorted):
+  AGENTDECK_INSTANCE_ID=29d9b3d5-1777737045
+  AGENT_DECK_TELEGRAM_TOKEN=<REDACTED>
+  AI_AGENT=claude-code/2.1.126/harness
+  ANTHROPIC_API_KEY=<REDACTED>
+  BUN_INSTALL=/Users/paul.grimshaw/.bun
+  CLAUDE_CODE_ENTRYPOINT=cli
+  CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
+  CLAUDE_PROJECT_DIR=/Users/paul.grimshaw/dev/remit-fresh
+  COLORFGBG=15;0
+  COLORTERM=truecolor
+  COMMAND_MODE=unix2003
+  COREPACK_ENABLE_AUTO_PIN=0
+  GHOSTTY_BIN_DIR=/Applications/Ghostty.app/Contents/MacOS
+  GHOSTTY_RESOURCES_DIR=/Applications/Ghostty.app/Contents/Resources/ghostty
+  GHOSTTY_SHELL_FEATURES=cursor:blink,path,title
+  HOME=/Users/paul.grimshaw
+  HOMEBREW_CELLAR=/opt/homebrew/Cellar
+  HOMEBREW_PREFIX=/opt/homebrew
+  HOMEBREW_REPOSITORY=/opt/homebrew
+  INFOPATH=/opt/homebrew/share/info:
+  LANG=en_GB.UTF-8
+  LOGNAME=paul.grimshaw
+  MANPATH=:/usr/share/man:/usr/local/share/man:/Applications/Ghostty.app/Contents/Resources/ghostty/../man:
+  NoDefaultCurrentDirectoryInExePath=1
+  OSLogRateLimit=64
+  OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta
+  PATH=/Users/paul.grimshaw/.bun/bin:/Users/paul.grimshaw/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/pmk/env/global/bin:/Applications/Ghostty.app/Contents/MacOS
+  PWD=/Users/paul.grimshaw/dev/remit-fresh
+  SHELL=/bin/zsh
+  SHLVL=2
+  SSH_AUTH_SOCK=/private/tmp/com.apple.launchd.MZSMY4cnyJ/Listeners
+  TERM=tmux-256color
+  TERMINFO=/Applications/Ghostty.app/Contents/Resources/terminfo
+  TERM_PROGRAM=tmux
+  TERM_PROGRAM_VERSION=3.6a
+  TMPDIR=/var/folders/yy/m9g_n2y93x7612yrz8j8fr_80000gn/T/
+  TMUX=/private/tmp/tmux-501/default,1424,20
+  TMUX_PANE=%27
+  USER=paul.grimshaw
+  XDG_DATA_DIRS=/usr/local/share:/usr/share:/Applications/Ghostty.app/Contents/Resources/ghostty/..
+  XPC_FLAGS=0x0
+  XPC_SERVICE_NAME=0
+  _=/Users/paul.grimshaw/dev/remit-fresh/target/debug/claude-code-hook
+  __CFBundleIdentifier=com.mitchellh.ghostty
+  __CF_USER_TEXT_ENCODING=0x1F5:0x0:0x2
+
+payload:
+{"session_id":"a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58","transcript_path":"/Users/paul.grimshaw/.claude/projects/-Users-paul-grimshaw-dev-remit-fresh/a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58.jsonl","cwd":"/Users/paul.grimshaw/dev/remit-fresh","permission_mode":"default","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":": > /Users/paul.grimshaw/dev/remit-fresh/remit.log && : > /Users/paul.grimshaw/dev/remit-fresh/remit-dump.log && echo \"logs cleared, ready for in-process Agent test\"","description":"Clear both logs for clean in-process test"},"tool_response":{"stdout":"logs cleared, ready for in-process Agent test","stderr":"","interrupted":false,"isImage":false,"noOutputExpected":false},"tool_use_id":"toolu_01SykTqaWYQEE11WVjB1whrp","duration_ms":16}
+
+
+========= 2026-05-02T23:59:49+0200
+ =========
+hook pid:  70839
+ppid:      27898  claude --session-id a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58
+gppid:     1424  tmux new-session -d -s agentdeck_inbox_f16007f9 -c /Users/paul.grimshaw/dev/home bash -c 'export COLORFGBG='\''15;0'\'' && source ~/.remit/init.sh && unset TELEGRAM_STATE_DIR && AGENTDECK_INSTANCE_ID=398ce3df-1777024088 claude --resume 0ed9d2fb-6e29-4d71-aa49-149119ec54f0'
+ggppid:    1  /sbin/launchd
+
+env (sorted):
+  AGENTDECK_INSTANCE_ID=29d9b3d5-1777737045
+  AGENT_DECK_TELEGRAM_TOKEN=<REDACTED>
+  AI_AGENT=claude-code/2.1.126/harness
+  ANTHROPIC_API_KEY=<REDACTED>
+  BUN_INSTALL=/Users/paul.grimshaw/.bun
+  CLAUDE_CODE_ENTRYPOINT=cli
+  CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
+  CLAUDE_PROJECT_DIR=/Users/paul.grimshaw/dev/remit-fresh
+  COLORFGBG=15;0
+  COLORTERM=truecolor
+  COMMAND_MODE=unix2003
+  COREPACK_ENABLE_AUTO_PIN=0
+  GHOSTTY_BIN_DIR=/Applications/Ghostty.app/Contents/MacOS
+  GHOSTTY_RESOURCES_DIR=/Applications/Ghostty.app/Contents/Resources/ghostty
+  GHOSTTY_SHELL_FEATURES=cursor:blink,path,title
+  HOME=/Users/paul.grimshaw
+  HOMEBREW_CELLAR=/opt/homebrew/Cellar
+  HOMEBREW_PREFIX=/opt/homebrew
+  HOMEBREW_REPOSITORY=/opt/homebrew
+  INFOPATH=/opt/homebrew/share/info:
+  LANG=en_GB.UTF-8
+  LOGNAME=paul.grimshaw
+  MANPATH=:/usr/share/man:/usr/local/share/man:/Applications/Ghostty.app/Contents/Resources/ghostty/../man:
+  NoDefaultCurrentDirectoryInExePath=1
+  OSLogRateLimit=64
+  OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta
+  PATH=/Users/paul.grimshaw/.bun/bin:/Users/paul.grimshaw/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/pmk/env/global/bin:/Applications/Ghostty.app/Contents/MacOS
+  PWD=/Users/paul.grimshaw/dev/remit-fresh
+  SHELL=/bin/zsh
+  SHLVL=2
+  SSH_AUTH_SOCK=/private/tmp/com.apple.launchd.MZSMY4cnyJ/Listeners
+  TERM=tmux-256color
+  TERMINFO=/Applications/Ghostty.app/Contents/Resources/terminfo
+  TERM_PROGRAM=tmux
+  TERM_PROGRAM_VERSION=3.6a
+  TMPDIR=/var/folders/yy/m9g_n2y93x7612yrz8j8fr_80000gn/T/
+  TMUX=/private/tmp/tmux-501/default,1424,20
+  TMUX_PANE=%27
+  USER=paul.grimshaw
+  XDG_DATA_DIRS=/usr/local/share:/usr/share:/Applications/Ghostty.app/Contents/Resources/ghostty/..
+  XPC_FLAGS=0x0
+  XPC_SERVICE_NAME=0
+  _=/Users/paul.grimshaw/dev/remit-fresh/target/debug/claude-code-hook
+  __CFBundleIdentifier=com.mitchellh.ghostty
+  __CF_USER_TEXT_ENCODING=0x1F5:0x0:0x2
+
+payload:
+{"session_id":"a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58","transcript_path":"/Users/paul.grimshaw/.claude/projects/-Users-paul-grimshaw-dev-remit-fresh/a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58.jsonl","cwd":"/Users/paul.grimshaw/dev/remit-fresh","permission_mode":"default","hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"description":"In-process diag","prompt":"One-shot trivial task for diagnostic purposes. Do exactly this and nothing else:\n\n1. Run `ls /Users/paul.grimshaw/dev/remit-fresh/crates` (Bash tool).\n2. Report back the directory listing.\n\nThat's it. Do not perform any other actions. The whole point is to keep the trace short and clean.","subagent_type":"general-purpose"},"tool_use_id":"toolu_01GMboNj1SX9BHBBZDZe55uL"}
+
+
+========= 2026-05-02T23:59:49+0200
+ =========
+hook pid:  70897
+ppid:      27898  claude --session-id a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58
+gppid:     1424  tmux new-session -d -s agentdeck_inbox_f16007f9 -c /Users/paul.grimshaw/dev/home bash -c 'export COLORFGBG='\''15;0'\'' && source ~/.remit/init.sh && unset TELEGRAM_STATE_DIR && AGENTDECK_INSTANCE_ID=398ce3df-1777024088 claude --resume 0ed9d2fb-6e29-4d71-aa49-149119ec54f0'
+ggppid:    1  /sbin/launchd
+
+env (sorted):
+  AGENTDECK_INSTANCE_ID=29d9b3d5-1777737045
+  AGENT_DECK_TELEGRAM_TOKEN=<REDACTED>
+  AI_AGENT=claude-code/2.1.126/harness
+  ANTHROPIC_API_KEY=<REDACTED>
+  BUN_INSTALL=/Users/paul.grimshaw/.bun
+  CLAUDE_CODE_ENTRYPOINT=cli
+  CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
+  CLAUDE_PROJECT_DIR=/Users/paul.grimshaw/dev/remit-fresh
+  COLORFGBG=15;0
+  COLORTERM=truecolor
+  COMMAND_MODE=unix2003
+  COREPACK_ENABLE_AUTO_PIN=0
+  GHOSTTY_BIN_DIR=/Applications/Ghostty.app/Contents/MacOS
+  GHOSTTY_RESOURCES_DIR=/Applications/Ghostty.app/Contents/Resources/ghostty
+  GHOSTTY_SHELL_FEATURES=cursor:blink,path,title
+  HOME=/Users/paul.grimshaw
+  HOMEBREW_CELLAR=/opt/homebrew/Cellar
+  HOMEBREW_PREFIX=/opt/homebrew
+  HOMEBREW_REPOSITORY=/opt/homebrew
+  INFOPATH=/opt/homebrew/share/info:
+  LANG=en_GB.UTF-8
+  LOGNAME=paul.grimshaw
+  MANPATH=:/usr/share/man:/usr/local/share/man:/Applications/Ghostty.app/Contents/Resources/ghostty/../man:
+  NoDefaultCurrentDirectoryInExePath=1
+  OSLogRateLimit=64
+  OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta
+  PATH=/Users/paul.grimshaw/.bun/bin:/Users/paul.grimshaw/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/pmk/env/global/bin:/Applications/Ghostty.app/Contents/MacOS
+  PWD=/Users/paul.grimshaw/dev/remit-fresh
+  SHELL=/bin/zsh
+  SHLVL=2
+  SSH_AUTH_SOCK=/private/tmp/com.apple.launchd.MZSMY4cnyJ/Listeners
+  TERM=tmux-256color
+  TERMINFO=/Applications/Ghostty.app/Contents/Resources/terminfo
+  TERM_PROGRAM=tmux
+  TERM_PROGRAM_VERSION=3.6a
+  TMPDIR=/var/folders/yy/m9g_n2y93x7612yrz8j8fr_80000gn/T/
+  TMUX=/private/tmp/tmux-501/default,1424,20
+  TMUX_PANE=%27
+  USER=paul.grimshaw
+  XDG_DATA_DIRS=/usr/local/share:/usr/share:/Applications/Ghostty.app/Contents/Resources/ghostty/..
+  XPC_FLAGS=0x0
+  XPC_SERVICE_NAME=0
+  _=/Users/paul.grimshaw/dev/remit-fresh/target/debug/claude-code-hook
+  __CFBundleIdentifier=com.mitchellh.ghostty
+  __CF_USER_TEXT_ENCODING=0x1F5:0x0:0x2
+
+payload:
+{"session_id":"a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58","transcript_path":"/Users/paul.grimshaw/.claude/projects/-Users-paul-grimshaw-dev-remit-fresh/a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58.jsonl","cwd":"/Users/paul.grimshaw/dev/remit-fresh","agent_id":"a4c4e34de58524ffd","agent_type":"general-purpose","hook_event_name":"SubagentStart"}
+
+
+========= 2026-05-02T23:59:54+0200
+ =========
+hook pid:  70963
+ppid:      27898  claude --session-id a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58
+gppid:     1424  tmux new-session -d -s agentdeck_inbox_f16007f9 -c /Users/paul.grimshaw/dev/home bash -c 'export COLORFGBG='\''15;0'\'' && source ~/.remit/init.sh && unset TELEGRAM_STATE_DIR && AGENTDECK_INSTANCE_ID=398ce3df-1777024088 claude --resume 0ed9d2fb-6e29-4d71-aa49-149119ec54f0'
+ggppid:    1  /sbin/launchd
+
+env (sorted):
+  AGENTDECK_INSTANCE_ID=29d9b3d5-1777737045
+  AGENT_DECK_TELEGRAM_TOKEN=<REDACTED>
+  AI_AGENT=claude-code/2.1.126/harness
+  ANTHROPIC_API_KEY=<REDACTED>
+  BUN_INSTALL=/Users/paul.grimshaw/.bun
+  CLAUDE_CODE_ENTRYPOINT=cli
+  CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
+  CLAUDE_PROJECT_DIR=/Users/paul.grimshaw/dev/remit-fresh
+  COLORFGBG=15;0
+  COLORTERM=truecolor
+  COMMAND_MODE=unix2003
+  COREPACK_ENABLE_AUTO_PIN=0
+  GHOSTTY_BIN_DIR=/Applications/Ghostty.app/Contents/MacOS
+  GHOSTTY_RESOURCES_DIR=/Applications/Ghostty.app/Contents/Resources/ghostty
+  GHOSTTY_SHELL_FEATURES=cursor:blink,path,title
+  HOME=/Users/paul.grimshaw
+  HOMEBREW_CELLAR=/opt/homebrew/Cellar
+  HOMEBREW_PREFIX=/opt/homebrew
+  HOMEBREW_REPOSITORY=/opt/homebrew
+  INFOPATH=/opt/homebrew/share/info:
+  LANG=en_GB.UTF-8
+  LOGNAME=paul.grimshaw
+  MANPATH=:/usr/share/man:/usr/local/share/man:/Applications/Ghostty.app/Contents/Resources/ghostty/../man:
+  NoDefaultCurrentDirectoryInExePath=1
+  OSLogRateLimit=64
+  OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta
+  PATH=/Users/paul.grimshaw/.bun/bin:/Users/paul.grimshaw/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/pmk/env/global/bin:/Applications/Ghostty.app/Contents/MacOS
+  PWD=/Users/paul.grimshaw/dev/remit-fresh
+  SHELL=/bin/zsh
+  SHLVL=2
+  SSH_AUTH_SOCK=/private/tmp/com.apple.launchd.MZSMY4cnyJ/Listeners
+  TERM=tmux-256color
+  TERMINFO=/Applications/Ghostty.app/Contents/Resources/terminfo
+  TERM_PROGRAM=tmux
+  TERM_PROGRAM_VERSION=3.6a
+  TMPDIR=/var/folders/yy/m9g_n2y93x7612yrz8j8fr_80000gn/T/
+  TMUX=/private/tmp/tmux-501/default,1424,20
+  TMUX_PANE=%27
+  USER=paul.grimshaw
+  XDG_DATA_DIRS=/usr/local/share:/usr/share:/Applications/Ghostty.app/Contents/Resources/ghostty/..
+  XPC_FLAGS=0x0
+  XPC_SERVICE_NAME=0
+  _=/Users/paul.grimshaw/dev/remit-fresh/target/debug/claude-code-hook
+  __CFBundleIdentifier=com.mitchellh.ghostty
+  __CF_USER_TEXT_ENCODING=0x1F5:0x0:0x2
+
+payload:
+{"session_id":"a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58","transcript_path":"/Users/paul.grimshaw/.claude/projects/-Users-paul-grimshaw-dev-remit-fresh/a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58.jsonl","cwd":"/Users/paul.grimshaw/dev/remit-fresh","permission_mode":"default","agent_id":"a4c4e34de58524ffd","agent_type":"general-purpose","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls /Users/paul.grimshaw/dev/remit-fresh/crates","description":"List crates directory"},"tool_use_id":"toolu_01SWjbce4UEmQqEbAf1vQyM3"}
+
+
+========= 2026-05-02T23:59:54+0200
+ =========
+hook pid:  71023
+ppid:      27898  claude --session-id a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58
+gppid:     1424  tmux new-session -d -s agentdeck_inbox_f16007f9 -c /Users/paul.grimshaw/dev/home bash -c 'export COLORFGBG='\''15;0'\'' && source ~/.remit/init.sh && unset TELEGRAM_STATE_DIR && AGENTDECK_INSTANCE_ID=398ce3df-1777024088 claude --resume 0ed9d2fb-6e29-4d71-aa49-149119ec54f0'
+ggppid:    1  /sbin/launchd
+
+env (sorted):
+  AGENTDECK_INSTANCE_ID=29d9b3d5-1777737045
+  AGENT_DECK_TELEGRAM_TOKEN=<REDACTED>
+  AI_AGENT=claude-code/2.1.126/harness
+  ANTHROPIC_API_KEY=<REDACTED>
+  BUN_INSTALL=/Users/paul.grimshaw/.bun
+  CLAUDE_CODE_ENTRYPOINT=cli
+  CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
+  CLAUDE_PROJECT_DIR=/Users/paul.grimshaw/dev/remit-fresh
+  COLORFGBG=15;0
+  COLORTERM=truecolor
+  COMMAND_MODE=unix2003
+  COREPACK_ENABLE_AUTO_PIN=0
+  GHOSTTY_BIN_DIR=/Applications/Ghostty.app/Contents/MacOS
+  GHOSTTY_RESOURCES_DIR=/Applications/Ghostty.app/Contents/Resources/ghostty
+  GHOSTTY_SHELL_FEATURES=cursor:blink,path,title
+  HOME=/Users/paul.grimshaw
+  HOMEBREW_CELLAR=/opt/homebrew/Cellar
+  HOMEBREW_PREFIX=/opt/homebrew
+  HOMEBREW_REPOSITORY=/opt/homebrew
+  INFOPATH=/opt/homebrew/share/info:
+  LANG=en_GB.UTF-8
+  LOGNAME=paul.grimshaw
+  MANPATH=:/usr/share/man:/usr/local/share/man:/Applications/Ghostty.app/Contents/Resources/ghostty/../man:
+  NoDefaultCurrentDirectoryInExePath=1
+  OSLogRateLimit=64
+  OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta
+  PATH=/Users/paul.grimshaw/.bun/bin:/Users/paul.grimshaw/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/pmk/env/global/bin:/Applications/Ghostty.app/Contents/MacOS
+  PWD=/Users/paul.grimshaw/dev/remit-fresh
+  SHELL=/bin/zsh
+  SHLVL=2
+  SSH_AUTH_SOCK=/private/tmp/com.apple.launchd.MZSMY4cnyJ/Listeners
+  TERM=tmux-256color
+  TERMINFO=/Applications/Ghostty.app/Contents/Resources/terminfo
+  TERM_PROGRAM=tmux
+  TERM_PROGRAM_VERSION=3.6a
+  TMPDIR=/var/folders/yy/m9g_n2y93x7612yrz8j8fr_80000gn/T/
+  TMUX=/private/tmp/tmux-501/default,1424,20
+  TMUX_PANE=%27
+  USER=paul.grimshaw
+  XDG_DATA_DIRS=/usr/local/share:/usr/share:/Applications/Ghostty.app/Contents/Resources/ghostty/..
+  XPC_FLAGS=0x0
+  XPC_SERVICE_NAME=0
+  _=/Users/paul.grimshaw/dev/remit-fresh/target/debug/claude-code-hook
+  __CFBundleIdentifier=com.mitchellh.ghostty
+  __CF_USER_TEXT_ENCODING=0x1F5:0x0:0x2
+
+payload:
+{"session_id":"a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58","transcript_path":"/Users/paul.grimshaw/.claude/projects/-Users-paul-grimshaw-dev-remit-fresh/a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58.jsonl","cwd":"/Users/paul.grimshaw/dev/remit-fresh","permission_mode":"default","agent_id":"a4c4e34de58524ffd","agent_type":"general-purpose","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"ls /Users/paul.grimshaw/dev/remit-fresh/crates","description":"List crates directory"},"tool_response":{"stdout":"claude-code-hook\ndomain\nfile-logger","stderr":"","interrupted":false,"isImage":false,"noOutputExpected":false},"tool_use_id":"toolu_01SWjbce4UEmQqEbAf1vQyM3","duration_ms":9}
+
+
+========= 2026-05-02T23:59:55+0200
+ =========
+hook pid:  71081
+ppid:      27898  claude --session-id a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58
+gppid:     1424  tmux new-session -d -s agentdeck_inbox_f16007f9 -c /Users/paul.grimshaw/dev/home bash -c 'export COLORFGBG='\''15;0'\'' && source ~/.remit/init.sh && unset TELEGRAM_STATE_DIR && AGENTDECK_INSTANCE_ID=398ce3df-1777024088 claude --resume 0ed9d2fb-6e29-4d71-aa49-149119ec54f0'
+ggppid:    1  /sbin/launchd
+
+env (sorted):
+  AGENTDECK_INSTANCE_ID=29d9b3d5-1777737045
+  AGENT_DECK_TELEGRAM_TOKEN=<REDACTED>
+  AI_AGENT=claude-code/2.1.126/harness
+  ANTHROPIC_API_KEY=<REDACTED>
+  BUN_INSTALL=/Users/paul.grimshaw/.bun
+  CLAUDE_CODE_ENTRYPOINT=cli
+  CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
+  CLAUDE_PROJECT_DIR=/Users/paul.grimshaw/dev/remit-fresh
+  COLORFGBG=15;0
+  COLORTERM=truecolor
+  COMMAND_MODE=unix2003
+  COREPACK_ENABLE_AUTO_PIN=0
+  GHOSTTY_BIN_DIR=/Applications/Ghostty.app/Contents/MacOS
+  GHOSTTY_RESOURCES_DIR=/Applications/Ghostty.app/Contents/Resources/ghostty
+  GHOSTTY_SHELL_FEATURES=cursor:blink,path,title
+  HOME=/Users/paul.grimshaw
+  HOMEBREW_CELLAR=/opt/homebrew/Cellar
+  HOMEBREW_PREFIX=/opt/homebrew
+  HOMEBREW_REPOSITORY=/opt/homebrew
+  INFOPATH=/opt/homebrew/share/info:
+  LANG=en_GB.UTF-8
+  LOGNAME=paul.grimshaw
+  MANPATH=:/usr/share/man:/usr/local/share/man:/Applications/Ghostty.app/Contents/Resources/ghostty/../man:
+  NoDefaultCurrentDirectoryInExePath=1
+  OSLogRateLimit=64
+  OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta
+  PATH=/Users/paul.grimshaw/.bun/bin:/Users/paul.grimshaw/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/pmk/env/global/bin:/Applications/Ghostty.app/Contents/MacOS
+  PWD=/Users/paul.grimshaw/dev/remit-fresh
+  SHELL=/bin/zsh
+  SHLVL=2
+  SSH_AUTH_SOCK=/private/tmp/com.apple.launchd.MZSMY4cnyJ/Listeners
+  TERM=tmux-256color
+  TERMINFO=/Applications/Ghostty.app/Contents/Resources/terminfo
+  TERM_PROGRAM=tmux
+  TERM_PROGRAM_VERSION=3.6a
+  TMPDIR=/var/folders/yy/m9g_n2y93x7612yrz8j8fr_80000gn/T/
+  TMUX=/private/tmp/tmux-501/default,1424,20
+  TMUX_PANE=%27
+  USER=paul.grimshaw
+  XDG_DATA_DIRS=/usr/local/share:/usr/share:/Applications/Ghostty.app/Contents/Resources/ghostty/..
+  XPC_FLAGS=0x0
+  XPC_SERVICE_NAME=0
+  _=/Users/paul.grimshaw/dev/remit-fresh/target/debug/claude-code-hook
+  __CFBundleIdentifier=com.mitchellh.ghostty
+  __CF_USER_TEXT_ENCODING=0x1F5:0x0:0x2
+
+payload:
+{"session_id":"a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58","transcript_path":"/Users/paul.grimshaw/.claude/projects/-Users-paul-grimshaw-dev-remit-fresh/a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58.jsonl","cwd":"/Users/paul.grimshaw/dev/remit-fresh","permission_mode":"default","agent_id":"a4c4e34de58524ffd","agent_type":"general-purpose","hook_event_name":"SubagentStop","stop_hook_active":false,"agent_transcript_path":"/Users/paul.grimshaw/.claude/projects/-Users-paul-grimshaw-dev-remit-fresh/a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58/subagents/agent-a4c4e34de58524ffd.jsonl","last_assistant_message":"Listing of `/Users/paul.grimshaw/dev/remit-fresh/crates`:\n\n- claude-code-hook\n- domain\n- file-logger"}
+
+
+========= 2026-05-02T23:59:55+0200
+ =========
+hook pid:  71138
+ppid:      27898  claude --session-id a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58
+gppid:     1424  tmux new-session -d -s agentdeck_inbox_f16007f9 -c /Users/paul.grimshaw/dev/home bash -c 'export COLORFGBG='\''15;0'\'' && source ~/.remit/init.sh && unset TELEGRAM_STATE_DIR && AGENTDECK_INSTANCE_ID=398ce3df-1777024088 claude --resume 0ed9d2fb-6e29-4d71-aa49-149119ec54f0'
+ggppid:    1  /sbin/launchd
+
+env (sorted):
+  AGENTDECK_INSTANCE_ID=29d9b3d5-1777737045
+  AGENT_DECK_TELEGRAM_TOKEN=<REDACTED>
+  AI_AGENT=claude-code/2.1.126/harness
+  ANTHROPIC_API_KEY=<REDACTED>
+  BUN_INSTALL=/Users/paul.grimshaw/.bun
+  CLAUDE_CODE_ENTRYPOINT=cli
+  CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
+  CLAUDE_PROJECT_DIR=/Users/paul.grimshaw/dev/remit-fresh
+  COLORFGBG=15;0
+  COLORTERM=truecolor
+  COMMAND_MODE=unix2003
+  COREPACK_ENABLE_AUTO_PIN=0
+  GHOSTTY_BIN_DIR=/Applications/Ghostty.app/Contents/MacOS
+  GHOSTTY_RESOURCES_DIR=/Applications/Ghostty.app/Contents/Resources/ghostty
+  GHOSTTY_SHELL_FEATURES=cursor:blink,path,title
+  HOME=/Users/paul.grimshaw
+  HOMEBREW_CELLAR=/opt/homebrew/Cellar
+  HOMEBREW_PREFIX=/opt/homebrew
+  HOMEBREW_REPOSITORY=/opt/homebrew
+  INFOPATH=/opt/homebrew/share/info:
+  LANG=en_GB.UTF-8
+  LOGNAME=paul.grimshaw
+  MANPATH=:/usr/share/man:/usr/local/share/man:/Applications/Ghostty.app/Contents/Resources/ghostty/../man:
+  NoDefaultCurrentDirectoryInExePath=1
+  OSLogRateLimit=64
+  OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta
+  PATH=/Users/paul.grimshaw/.bun/bin:/Users/paul.grimshaw/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/pmk/env/global/bin:/Applications/Ghostty.app/Contents/MacOS
+  PWD=/Users/paul.grimshaw/dev/remit-fresh
+  SHELL=/bin/zsh
+  SHLVL=2
+  SSH_AUTH_SOCK=/private/tmp/com.apple.launchd.MZSMY4cnyJ/Listeners
+  TERM=tmux-256color
+  TERMINFO=/Applications/Ghostty.app/Contents/Resources/terminfo
+  TERM_PROGRAM=tmux
+  TERM_PROGRAM_VERSION=3.6a
+  TMPDIR=/var/folders/yy/m9g_n2y93x7612yrz8j8fr_80000gn/T/
+  TMUX=/private/tmp/tmux-501/default,1424,20
+  TMUX_PANE=%27
+  USER=paul.grimshaw
+  XDG_DATA_DIRS=/usr/local/share:/usr/share:/Applications/Ghostty.app/Contents/Resources/ghostty/..
+  XPC_FLAGS=0x0
+  XPC_SERVICE_NAME=0
+  _=/Users/paul.grimshaw/dev/remit-fresh/target/debug/claude-code-hook
+  __CFBundleIdentifier=com.mitchellh.ghostty
+  __CF_USER_TEXT_ENCODING=0x1F5:0x0:0x2
+
+payload:
+{"session_id":"a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58","transcript_path":"/Users/paul.grimshaw/.claude/projects/-Users-paul-grimshaw-dev-remit-fresh/a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58.jsonl","cwd":"/Users/paul.grimshaw/dev/remit-fresh","permission_mode":"default","hook_event_name":"PostToolUse","tool_name":"Agent","tool_input":{"description":"In-process diag","prompt":"One-shot trivial task for diagnostic purposes. Do exactly this and nothing else:\n\n1. Run `ls /Users/paul.grimshaw/dev/remit-fresh/crates` (Bash tool).\n2. Report back the directory listing.\n\nThat's it. Do not perform any other actions. The whole point is to keep the trace short and clean.","subagent_type":"general-purpose"},"tool_response":{"status":"completed","prompt":"One-shot trivial task for diagnostic purposes. Do exactly this and nothing else:\n\n1. Run `ls /Users/paul.grimshaw/dev/remit-fresh/crates` (Bash tool).\n2. Report back the directory listing.\n\nThat's it. Do not perform any other actions. The whole point is to keep the trace short and clean.","agentId":"a4c4e34de58524ffd","agentType":"general-purpose","content":[{"type":"text","text":"Listing of `/Users/paul.grimshaw/dev/remit-fresh/crates`:\n\n- claude-code-hook\n- domain\n- file-logger"}],"totalDurationMs":6722,"totalTokens":15953,"totalToolUseCount":1,"usage":{"input_tokens":1,"cache_creation_input_tokens":5977,"cache_read_input_tokens":9920,"output_tokens":55,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"standard","cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":5977},"inference_geo":"","iterations":[{"input_tokens":1,"output_tokens":55,"cache_read_input_tokens":9920,"cache_creation_input_tokens":5977,"cache_creation":{"ephemeral_5m_input_tokens":5977,"ephemeral_1h_input_tokens":0},"type":"message"}],"speed":"standard"},"toolStats":{"readCount":0,"searchCount":0,"bashCount":1,"editFileCount":0,"linesAdded":0,"linesRemoved":0,"otherToolCount":0}},"tool_use_id":"toolu_01GMboNj1SX9BHBBZDZe55uL","duration_ms":6722}
+
+
+========= 2026-05-03T00:00:04+0200
+ =========
+hook pid:  71229
+ppid:      27898  claude --session-id a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58
+gppid:     1424  tmux new-session -d -s agentdeck_inbox_f16007f9 -c /Users/paul.grimshaw/dev/home bash -c 'export COLORFGBG='\''15;0'\'' && source ~/.remit/init.sh && unset TELEGRAM_STATE_DIR && AGENTDECK_INSTANCE_ID=398ce3df-1777024088 claude --resume 0ed9d2fb-6e29-4d71-aa49-149119ec54f0'
+ggppid:    1  /sbin/launchd
+
+env (sorted):
+  AGENTDECK_INSTANCE_ID=29d9b3d5-1777737045
+  AGENT_DECK_TELEGRAM_TOKEN=<REDACTED>
+  AI_AGENT=claude-code/2.1.126/harness
+  ANTHROPIC_API_KEY=<REDACTED>
+  BUN_INSTALL=/Users/paul.grimshaw/.bun
+  CLAUDE_CODE_ENTRYPOINT=cli
+  CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
+  CLAUDE_PROJECT_DIR=/Users/paul.grimshaw/dev/remit-fresh
+  COLORFGBG=15;0
+  COLORTERM=truecolor
+  COMMAND_MODE=unix2003
+  COREPACK_ENABLE_AUTO_PIN=0
+  GHOSTTY_BIN_DIR=/Applications/Ghostty.app/Contents/MacOS
+  GHOSTTY_RESOURCES_DIR=/Applications/Ghostty.app/Contents/Resources/ghostty
+  GHOSTTY_SHELL_FEATURES=cursor:blink,path,title
+  HOME=/Users/paul.grimshaw
+  HOMEBREW_CELLAR=/opt/homebrew/Cellar
+  HOMEBREW_PREFIX=/opt/homebrew
+  HOMEBREW_REPOSITORY=/opt/homebrew
+  INFOPATH=/opt/homebrew/share/info:
+  LANG=en_GB.UTF-8
+  LOGNAME=paul.grimshaw
+  MANPATH=:/usr/share/man:/usr/local/share/man:/Applications/Ghostty.app/Contents/Resources/ghostty/../man:
+  NoDefaultCurrentDirectoryInExePath=1
+  OSLogRateLimit=64
+  OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta
+  PATH=/Users/paul.grimshaw/.bun/bin:/Users/paul.grimshaw/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/pmk/env/global/bin:/Applications/Ghostty.app/Contents/MacOS
+  PWD=/Users/paul.grimshaw/dev/remit-fresh
+  SHELL=/bin/zsh
+  SHLVL=2
+  SSH_AUTH_SOCK=/private/tmp/com.apple.launchd.MZSMY4cnyJ/Listeners
+  TERM=tmux-256color
+  TERMINFO=/Applications/Ghostty.app/Contents/Resources/terminfo
+  TERM_PROGRAM=tmux
+  TERM_PROGRAM_VERSION=3.6a
+  TMPDIR=/var/folders/yy/m9g_n2y93x7612yrz8j8fr_80000gn/T/
+  TMUX=/private/tmp/tmux-501/default,1424,20
+  TMUX_PANE=%27
+  USER=paul.grimshaw
+  XDG_DATA_DIRS=/usr/local/share:/usr/share:/Applications/Ghostty.app/Contents/Resources/ghostty/..
+  XPC_FLAGS=0x0
+  XPC_SERVICE_NAME=0
+  _=/Users/paul.grimshaw/dev/remit-fresh/target/debug/claude-code-hook
+  __CFBundleIdentifier=com.mitchellh.ghostty
+  __CF_USER_TEXT_ENCODING=0x1F5:0x0:0x2
+
+payload:
+{"session_id":"a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58","transcript_path":"/Users/paul.grimshaw/.claude/projects/-Users-paul-grimshaw-dev-remit-fresh/a9c8ca57-1c71-4ffc-8cd5-58a9aa5b0b58.jsonl","cwd":"/Users/paul.grimshaw/dev/remit-fresh","permission_mode":"default","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"python3 <<'PY'\nimport re\nsrc = open('remit-dump.log').read()\npatterns = [\n    (re.compile(r'(ANTHROPIC_API_KEY=<REDACTED>
+

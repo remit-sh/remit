@@ -28,8 +28,11 @@ impl ClassifierLogger for FileLogger {
         };
         let _ = writeln!(
             f,
-            "incoming: session_id={} action_kind={} working_dir={} action={}",
-            input.session_id,
+            "incoming: session_id={} spawn_id={:?} parent={:?} call_id={:?} action_kind={} working_dir={} action={}",
+            input.session.id,
+            input.session.spawn_id,
+            input.parent_session_id,
+            input.call_id,
             input.action_kind,
             input.working_dir.display(),
             input.action,

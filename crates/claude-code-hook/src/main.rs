@@ -1,12 +1,14 @@
 use std::io::Read;
 use std::path::PathBuf;
 
-use domain::{ClassificationInput, Decision, classify};
+use domain::{ClassificationInput, Classifier, Decision, Session};
 use file_logger::FileLogger;
 
 #[derive(serde::Deserialize)]
 struct HookPayload {
     session_id: String,
+    tool_use_id: Option<String>,
+    agent_id: Option<String>,
     tool_name: String,
     tool_input: serde_json::Value,
     cwd: PathBuf,
@@ -19,17 +21,26 @@ fn main() {
         .expect("read stdin");
     let payload: HookPayload = serde_json::from_str(&buf).expect("parse hook payload");
 
+    let parent_session_id = std::env::var("CLAUDE_SESSION_ID")
+        .ok()
+        .filter(|p| p != &payload.session_id);
+
     let input = ClassificationInput {
-        session_id: payload.session_id,
+        session: Session {
+            id: payload.session_id,
+            spawn_id: payload.agent_id,
+        },
+        parent_session_id,
+        call_id: payload.tool_use_id,
         action_kind: payload.tool_name,
         action: payload.tool_input.to_string(),
         working_dir: payload.cwd,
     };
 
     let log_path = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../remit.log"));
-    let logger = FileLogger::new(log_path);
+    let classifier = Classifier::new(FileLogger::new(log_path));
 
-    match classify(&input, &logger) {
+    match classifier.classify(&input) {
         Decision::Green => {}
         Decision::Red { reason } => {
             eprintln!("{reason}");
