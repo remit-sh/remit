@@ -21,9 +21,10 @@ fn main() {
         .expect("read stdin");
     let payload: HookPayload = serde_json::from_str(&buf).expect("parse hook payload");
 
-    let parent_id = std::env::var("CLAUDE_SESSION_ID")
-        .ok()
-        .filter(|p| p != &payload.session_id);
+    let parent_id = infer_parent_id(
+        std::env::var("CLAUDE_SESSION_ID").ok(),
+        &payload.session_id,
+    );
 
     let input = ClassificationInput {
         session: Session {
@@ -48,5 +49,32 @@ fn main() {
             eprintln!("{reason}");
             std::process::exit(2);
         }
+    }
+}
+
+fn infer_parent_id(env_value: Option<String>, session_id: &str) -> Option<String> {
+    env_value.filter(|p| p != session_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_env_means_no_parent() {
+        assert_eq!(infer_parent_id(None, "self"), None);
+    }
+
+    #[test]
+    fn env_differing_from_self_is_parent() {
+        assert_eq!(
+            infer_parent_id(Some("parent-id".to_string()), "self"),
+            Some("parent-id".to_string()),
+        );
+    }
+
+    #[test]
+    fn env_equal_to_self_is_ignored() {
+        assert_eq!(infer_parent_id(Some("self".to_string()), "self"), None);
     }
 }
