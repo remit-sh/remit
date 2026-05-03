@@ -47,6 +47,21 @@ pub trait ClassifierLogger {
     fn log_incoming(&self, input: &ClassificationInput);
 }
 
+#[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
+pub enum ScopeStoreError {
+    #[error("scope store backend unavailable")]
+    Unavailable(#[source] Box<dyn std::error::Error + Send + Sync>),
+}
+
+pub trait ScopeReader {
+    fn scope_for(&self, session_id: &SessionId) -> Result<Option<Scope>, ScopeStoreError>;
+}
+
+pub trait ScopeWriter {
+    fn assign(&self, session_id: &SessionId, scope: Scope) -> Result<(), ScopeStoreError>;
+}
+
 pub struct Classifier<L: ClassifierLogger> {
     logger: L,
 }
