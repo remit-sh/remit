@@ -2,7 +2,7 @@
 
 **Semantic Firewall for AI Agent Sessions**
 
-Remit keeps AI agents within their remit. A local-first semantic firewall that checks every tool call against the session's declared intent.
+Remit keeps AI agents within their **Scope**. A local-first semantic firewall that checks every tool call against the session's declared **Scope**.
 
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-blue.svg)](LICENSE)
 

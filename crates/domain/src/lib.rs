@@ -6,7 +6,7 @@ use nutype::nutype;
 pub struct SessionId(String);
 
 #[nutype(derive(Clone, Debug, Display, PartialEq, Eq, Hash, AsRef))]
-pub struct SpawnId(String);
+pub struct SubagentId(String);
 
 #[nutype(derive(Clone, Debug, Display, PartialEq, Eq, Hash, AsRef))]
 pub struct CallId(String);
@@ -28,7 +28,7 @@ pub struct Scope(String);
 
 pub struct Session {
     pub id: SessionId,
-    pub spawn_id: Option<SpawnId>,
+    pub subagent_id: Option<SubagentId>,
     pub parent_id: Option<SessionId>,
 }
 
@@ -38,7 +38,7 @@ pub struct ClassificationInput {
     pub working_dir: PathBuf,
 }
 
-pub enum Decision {
+pub enum Verdict {
     Green,
     Red { reason: String },
 }
@@ -56,8 +56,8 @@ impl<L: ClassifierLogger> Classifier<L> {
         Self { logger }
     }
 
-    pub fn classify(&self, input: &ClassificationInput) -> Decision {
+    pub fn classify(&self, input: &ClassificationInput) -> Verdict {
         self.logger.log_incoming(input);
-        Decision::Green
+        Verdict::Green
     }
 }

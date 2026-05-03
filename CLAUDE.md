@@ -51,8 +51,6 @@ Notable:
 - **Verdict** — Green or Red.
 - **Subagent** — any child agent, runtime-agnostic.
 
-Code still uses pre-rename names (`Decision`, `SpawnId`); follow the doc, the renames are tracked drift.
-
 # Project
 
 Rust workspace, hexagonal architecture.

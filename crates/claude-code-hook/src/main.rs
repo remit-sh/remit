@@ -2,8 +2,8 @@ use std::io::Read;
 use std::path::PathBuf;
 
 use domain::{
-    Action, ActionArgs, ActionKind, CallId, ClassificationInput, Classifier, Decision, Session,
-    SessionId, SpawnId,
+    Action, ActionArgs, ActionKind, CallId, ClassificationInput, Classifier, Session, SessionId,
+    SubagentId, Verdict,
 };
 use file_logger::FileLogger;
 
@@ -35,7 +35,7 @@ fn main() {
     let input = ClassificationInput {
         session: Session {
             id: session_id,
-            spawn_id: payload.agent_id.map(SpawnId::new),
+            subagent_id: payload.agent_id.map(SubagentId::new),
             parent_id,
         },
         action: Action {
@@ -50,8 +50,8 @@ fn main() {
     let classifier = Classifier::new(FileLogger::new(log_path));
 
     match classifier.classify(&input) {
-        Decision::Green => {}
-        Decision::Red { reason } => {
+        Verdict::Green => {}
+        Verdict::Red { reason } => {
             eprintln!("{reason}");
             std::process::exit(2);
         }
