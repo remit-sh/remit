@@ -26,9 +26,9 @@ impl ClassifierLogger for FileLogger {
         else {
             return;
         };
-        let spawn = input.session.spawn_id.as_ref().map(|s| s.as_str());
-        let parent = input.session.parent_id.as_ref().map(|s| s.as_str());
-        let call = input.action.call_id.as_ref().map(|s| s.as_str());
+        let spawn = input.session.spawn_id.as_ref().map(|s| s.as_ref());
+        let parent = input.session.parent_id.as_ref().map(|s| s.as_ref());
+        let call = input.action.call_id.as_ref().map(|s| s.as_ref());
         let _ = writeln!(
             f,
             "incoming: session_id={} spawn_id={:?} parent_id={:?} call_id={:?} kind={} working_dir={} args={}",

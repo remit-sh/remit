@@ -24,22 +24,24 @@ fn main() {
         .expect("read stdin");
     let payload: HookPayload = serde_json::from_str(&buf).expect("parse hook payload");
 
-    let session_id = SessionId(payload.session_id);
+    let session_id = SessionId::new(payload.session_id);
+    
+    // Takes parent from env if present
     let parent_id = infer_parent_id(
-        std::env::var("CLAUDE_SESSION_ID").ok().map(SessionId),
+        std::env::var("CLAUDE_SESSION_ID").ok().map(SessionId::new),
         &session_id,
     );
 
     let input = ClassificationInput {
         session: Session {
             id: session_id,
-            spawn_id: payload.agent_id.map(SpawnId),
+            spawn_id: payload.agent_id.map(SpawnId::new),
             parent_id,
         },
         action: Action {
-            call_id: payload.tool_use_id.map(CallId),
-            kind: ActionKind(payload.tool_name),
-            args: ActionArgs(payload.tool_input.to_string()),
+            call_id: payload.tool_use_id.map(CallId::new),
+            kind: ActionKind::new(payload.tool_name),
+            args: ActionArgs::new(payload.tool_input.to_string()),
         },
         working_dir: payload.cwd,
     };
@@ -67,21 +69,21 @@ mod tests {
     #[test]
     fn no_env_means_no_parent() {
         assert_eq!(
-            infer_parent_id(None, &SessionId("self".to_string())),
+            infer_parent_id(None, &SessionId::new("self".to_string())),
             None
         );
     }
 
     #[test]
     fn env_differing_from_self_is_parent() {
-        let env = SessionId("parent-id".to_string());
-        let me = SessionId("self".to_string());
+        let env = SessionId::new("parent-id".to_string());
+        let me = SessionId::new("self".to_string());
         assert_eq!(infer_parent_id(Some(env.clone()), &me), Some(env));
     }
 
     #[test]
     fn env_equal_to_self_is_ignored() {
-        let me = SessionId("self".to_string());
+        let me = SessionId::new("self".to_string());
         assert_eq!(infer_parent_id(Some(me.clone()), &me), None);
     }
 }

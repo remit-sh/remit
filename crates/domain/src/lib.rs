@@ -1,33 +1,21 @@
 use std::path::PathBuf;
 
-macro_rules! string_id {
-    ($($name:ident),* $(,)?) => {
-        $(
-            #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-            pub struct $name(pub String);
+use nutype::nutype;
 
-            impl $name {
-                pub fn as_str(&self) -> &str {
-                    &self.0
-                }
-            }
+#[nutype(derive(Clone, Debug, Display, PartialEq, Eq, Hash, AsRef))]
+pub struct SessionId(String);
 
-            impl AsRef<str> for $name {
-                fn as_ref(&self) -> &str {
-                    &self.0
-                }
-            }
+#[nutype(derive(Clone, Debug, Display, PartialEq, Eq, Hash, AsRef))]
+pub struct SpawnId(String);
 
-            impl std::fmt::Display for $name {
-                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    write!(f, "{}", self.0)
-                }
-            }
-        )*
-    };
-}
+#[nutype(derive(Clone, Debug, Display, PartialEq, Eq, Hash, AsRef))]
+pub struct CallId(String);
 
-string_id!(SessionId, SpawnId, CallId, ActionKind, ActionArgs);
+#[nutype(derive(Clone, Debug, Display, PartialEq, Eq, Hash, AsRef))]
+pub struct ActionKind(String);
+
+#[nutype(derive(Clone, Debug, Display, PartialEq, Eq, Hash, AsRef))]
+pub struct ActionArgs(String);
 
 pub struct Session {
     pub id: SessionId,
