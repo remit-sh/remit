@@ -17,16 +17,19 @@ pub struct ActionKind(String);
 #[nutype(derive(Clone, Debug, Display, PartialEq, Eq, Hash, AsRef))]
 pub struct ActionArgs(String);
 
-pub struct Session {
-    pub id: SessionId,
-    pub spawn_id: Option<SpawnId>,
-    pub parent_id: Option<SessionId>,
-}
-
 pub struct Action {
     pub call_id: Option<CallId>,
     pub kind: ActionKind,
     pub args: ActionArgs,
+}
+
+#[nutype(derive(Clone, Debug, Display, PartialEq, Eq, Hash, AsRef))]
+pub struct Scope(String);
+
+pub struct Session {
+    pub id: SessionId,
+    pub spawn_id: Option<SpawnId>,
+    pub parent_id: Option<SessionId>,
 }
 
 pub struct ClassificationInput {
