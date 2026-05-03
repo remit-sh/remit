@@ -26,7 +26,7 @@ fn main() {
 
     let session_id = SessionId::new(payload.session_id);
     
-    // Takes parent from env if present
+    // Takes parent session Id from env if present
     let parent_id = infer_parent_id(
         std::env::var("CLAUDE_SESSION_ID").ok().map(SessionId::new),
         &session_id,
