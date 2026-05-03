@@ -1,0 +1,11 @@
+# Tune cognitive complexity threshold (default 25 is too permissive)
+cognitive-complexity-threshold = 15
+
+# Max lines per function body (default 100)
+too-many-lines-threshold = 60
+
+# Max function arguments (default 7)
+too-many-arguments-threshold = 5
+
+# Max nesting depth
+excessive-nesting-threshold = 4

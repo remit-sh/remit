@@ -1,0 +1,14 @@
+edition = "2021"
+
+# Group imports: std / external crates / crate-local — separated by blank lines
+imports_granularity = "Crate"
+group_imports = "StdExternalCrate"
+
+# Trailing commas in multi-line function signatures and calls
+trailing_comma = "Vertical"
+
+# Format string literals where possible
+format_strings = false
+
+# Maximum line width (rustfmt wraps at this)
+max_width = 100
