@@ -1,7 +1,10 @@
 use std::io::Read;
 use std::path::PathBuf;
 
-use domain::{Action, ClassificationInput, Classifier, Decision, Session};
+use domain::{
+    Action, ActionArgs, ActionKind, CallId, ClassificationInput, Classifier, Decision, Session,
+    SessionId, SpawnId,
+};
 use file_logger::FileLogger;
 
 #[derive(serde::Deserialize)]
@@ -21,21 +24,22 @@ fn main() {
         .expect("read stdin");
     let payload: HookPayload = serde_json::from_str(&buf).expect("parse hook payload");
 
+    let session_id = SessionId(payload.session_id);
     let parent_id = infer_parent_id(
-        std::env::var("CLAUDE_SESSION_ID").ok(),
-        &payload.session_id,
+        std::env::var("CLAUDE_SESSION_ID").ok().map(SessionId),
+        &session_id,
     );
 
     let input = ClassificationInput {
         session: Session {
-            id: payload.session_id,
-            spawn_id: payload.agent_id,
+            id: session_id,
+            spawn_id: payload.agent_id.map(SpawnId),
             parent_id,
         },
         action: Action {
-            call_id: payload.tool_use_id,
-            kind: payload.tool_name,
-            args: payload.tool_input.to_string(),
+            call_id: payload.tool_use_id.map(CallId),
+            kind: ActionKind(payload.tool_name),
+            args: ActionArgs(payload.tool_input.to_string()),
         },
         working_dir: payload.cwd,
     };
@@ -52,7 +56,7 @@ fn main() {
     }
 }
 
-fn infer_parent_id(env_value: Option<String>, session_id: &str) -> Option<String> {
+fn infer_parent_id(env_value: Option<SessionId>, session_id: &SessionId) -> Option<SessionId> {
     env_value.filter(|p| p != session_id)
 }
 
@@ -62,19 +66,22 @@ mod tests {
 
     #[test]
     fn no_env_means_no_parent() {
-        assert_eq!(infer_parent_id(None, "self"), None);
-    }
-
-    #[test]
-    fn env_differing_from_self_is_parent() {
         assert_eq!(
-            infer_parent_id(Some("parent-id".to_string()), "self"),
-            Some("parent-id".to_string()),
+            infer_parent_id(None, &SessionId("self".to_string())),
+            None
         );
     }
 
     #[test]
+    fn env_differing_from_self_is_parent() {
+        let env = SessionId("parent-id".to_string());
+        let me = SessionId("self".to_string());
+        assert_eq!(infer_parent_id(Some(env.clone()), &me), Some(env));
+    }
+
+    #[test]
     fn env_equal_to_self_is_ignored() {
-        assert_eq!(infer_parent_id(Some("self".to_string()), "self"), None);
+        let me = SessionId("self".to_string());
+        assert_eq!(infer_parent_id(Some(me.clone()), &me), None);
     }
 }

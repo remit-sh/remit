@@ -1,15 +1,44 @@
 use std::path::PathBuf;
 
+macro_rules! string_id {
+    ($($name:ident),* $(,)?) => {
+        $(
+            #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+            pub struct $name(pub String);
+
+            impl $name {
+                pub fn as_str(&self) -> &str {
+                    &self.0
+                }
+            }
+
+            impl AsRef<str> for $name {
+                fn as_ref(&self) -> &str {
+                    &self.0
+                }
+            }
+
+            impl std::fmt::Display for $name {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    write!(f, "{}", self.0)
+                }
+            }
+        )*
+    };
+}
+
+string_id!(SessionId, SpawnId, CallId, ActionKind, ActionArgs);
+
 pub struct Session {
-    pub id: String,
-    pub spawn_id: Option<String>,
-    pub parent_id: Option<String>,
+    pub id: SessionId,
+    pub spawn_id: Option<SpawnId>,
+    pub parent_id: Option<SessionId>,
 }
 
 pub struct Action {
-    pub call_id: Option<String>,
-    pub kind: String,
-    pub args: String,
+    pub call_id: Option<CallId>,
+    pub kind: ActionKind,
+    pub args: ActionArgs,
 }
 
 pub struct ClassificationInput {
