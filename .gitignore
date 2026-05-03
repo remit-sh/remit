@@ -1,3 +1,7 @@
 /target
 /remit.log
 .DS_Store
+.worktrees/
+.obsidian/
+*.pdf
+*.epub
