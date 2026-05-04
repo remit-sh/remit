@@ -118,6 +118,8 @@ After cloning, install the pre-push hook:
 
 Aim for near-100% coverage. Every public function and trait implementation gets a unit test. Every port gets an integration test exercising a real adapter, not just mocks. Bar tightens toward 100% as the codebase grows.
 
+Tests live in separate files, never appended to source modules. Unit tests for private items go in a sibling `tests.rs` declared as `#[cfg(test)] mod tests;`. Integration tests live under `tests/`.
+
 # Workflow
 
 - Trunk-based; commits land directly on `main`.
