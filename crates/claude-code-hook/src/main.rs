@@ -24,11 +24,19 @@ fn main() {
         .expect("read stdin");
     let payload: HookPayload = serde_json::from_str(&buf).expect("parse hook payload");
 
-    let session_id = SessionId::new(payload.session_id);
+    let session_id = match SessionId::try_new(payload.session_id) {
+        Ok(id) => id,
+        Err(_) => {
+            eprintln!("invalid session id");
+            std::process::exit(2);
+        }
+    };
 
-    // Takes parent session Id from env if present
+    // Takes parent session Id from env if present; malformed env value is ignored.
     let parent_id = infer_parent_id(
-        std::env::var("CLAUDE_SESSION_ID").ok().map(SessionId::new),
+        std::env::var("CLAUDE_SESSION_ID")
+            .ok()
+            .and_then(|s| SessionId::try_new(s).ok()),
         &session_id,
     );
 
@@ -69,21 +77,21 @@ mod tests {
     #[test]
     fn no_env_means_no_parent() {
         assert_eq!(
-            infer_parent_id(None, &SessionId::new("self".to_string())),
+            infer_parent_id(None, &SessionId::try_new("self".to_string()).unwrap()),
             None
         );
     }
 
     #[test]
     fn env_differing_from_self_is_parent() {
-        let env = SessionId::new("parent-id".to_string());
-        let me = SessionId::new("self".to_string());
+        let env = SessionId::try_new("parent-id".to_string()).unwrap();
+        let me = SessionId::try_new("self".to_string()).unwrap();
         assert_eq!(infer_parent_id(Some(env.clone()), &me), Some(env));
     }
 
     #[test]
     fn env_equal_to_self_is_ignored() {
-        let me = SessionId::new("self".to_string());
+        let me = SessionId::try_new("self".to_string()).unwrap();
         assert_eq!(infer_parent_id(Some(me.clone()), &me), None);
     }
 }

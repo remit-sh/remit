@@ -1,0 +1,13 @@
+[package]
+name = "file-scope-store"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+domain = { path = "../domain" }
+serde_json = "1"
+
+[dev-dependencies]
+domain = { path = "../domain", features = ["test-support"] }
+tempfile = "3"

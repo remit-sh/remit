@@ -7,3 +7,6 @@ rust-version.workspace = true
 [dependencies]
 nutype = "0.6"
 thiserror = "2"
+
+[features]
+test-support = []

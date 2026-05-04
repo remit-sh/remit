@@ -2,7 +2,16 @@ use std::path::PathBuf;
 
 use nutype::nutype;
 
-#[nutype(derive(Clone, Debug, Display, PartialEq, Eq, Hash, AsRef))]
+/// Contract-test harness for adapters; opt-in via `test-support` feature so it never ships in prod.
+#[cfg(feature = "test-support")]
+pub mod test_support;
+
+#[nutype(
+    validate(predicate = |s: &str| !s.is_empty()
+        && s.len() <= 128
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')),
+    derive(Clone, Debug, Display, PartialEq, Eq, Hash, AsRef)
+)]
 pub struct SessionId(String);
 
 #[nutype(derive(Clone, Debug, Display, PartialEq, Eq, Hash, AsRef))]
@@ -56,7 +65,9 @@ pub enum ScopeError {
 
 pub trait ScopeReader {
     /// Fail-closed: consumers must treat `Ok(None)` and `Err(_)` as
-    /// unknown state and emit Red. Never default to permissive.
+    /// unknown state and emit Red. Adapters MUST return `Err(Unavailable)`
+    /// for any non-absent failure (corrupt payload, IO error, permission
+    /// denied, partial write); only confirmed absence returns `Ok(None)`.
     fn scope_for(&self, session_id: &SessionId) -> Result<Option<Scope>, ScopeError>;
 }
 

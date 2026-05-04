@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/domain",
     "crates/file-logger",
+    "crates/file-scope-store",
     "crates/claude-code-hook",
 ]
 
