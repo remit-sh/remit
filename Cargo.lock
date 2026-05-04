@@ -26,6 +26,7 @@ version = "0.1.0"
 dependencies = [
  "domain",
  "file-logger",
+ "file-scope-store",
  "serde",
  "serde_json",
 ]

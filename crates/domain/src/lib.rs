@@ -75,17 +75,47 @@ pub trait ScopeWriter {
     fn assign(&self, session_id: &SessionId, scope: Scope) -> Result<(), ScopeError>;
 }
 
-pub struct Classifier<L: ClassifierLogger> {
-    logger: L,
+// Single hop: walks session, then parent if present. The composition root
+// flattens deeper chains via CLAUDE_SESSION_ID, which always points at root.
+// Full chain-walk would need a SessionReader port; tracked separately.
+pub fn resolve_scope<R: ScopeReader>(
+    reader: &R,
+    session: &Session,
+) -> Result<Option<Scope>, ScopeError> {
+    if let Some(scope) = reader.scope_for(&session.id)? {
+        return Ok(Some(scope));
+    }
+    if let Some(parent) = &session.parent_id
+        && parent != &session.id
+    {
+        return reader.scope_for(parent);
+    }
+    Ok(None)
 }
 
-impl<L: ClassifierLogger> Classifier<L> {
-    pub fn new(logger: L) -> Self {
-        Self { logger }
+pub struct Classifier<L: ClassifierLogger, R: ScopeReader> {
+    logger: L,
+    scope_reader: R,
+}
+
+impl<L: ClassifierLogger, R: ScopeReader> Classifier<L, R> {
+    pub fn new(logger: L, scope_reader: R) -> Self {
+        Self {
+            logger,
+            scope_reader,
+        }
     }
 
     pub fn classify(&self, input: &ClassificationInput) -> Verdict {
         self.logger.log_incoming(input);
-        Verdict::Green
+        match resolve_scope(&self.scope_reader, &input.session) {
+            Ok(Some(_)) => Verdict::Green,
+            Ok(None) => Verdict::Red {
+                reason: "no scope set for this session".into(),
+            },
+            Err(e) => Verdict::Red {
+                reason: format!("scope store unavailable: {e}"),
+            },
+        }
     }
 }

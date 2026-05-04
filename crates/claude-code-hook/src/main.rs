@@ -6,6 +6,7 @@ use domain::{
     SubagentId, Verdict,
 };
 use file_logger::FileLogger;
+use file_scope_store::FileScopeStore;
 
 #[derive(serde::Deserialize)]
 struct HookPayload {
@@ -55,7 +56,8 @@ fn main() {
     };
 
     let log_path = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../remit.log"));
-    let classifier = Classifier::new(FileLogger::new(log_path));
+    let scope_dir = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../scopes"));
+    let classifier = Classifier::new(FileLogger::new(log_path), FileScopeStore::new(scope_dir));
 
     match classifier.classify(&input) {
         Verdict::Green => {}

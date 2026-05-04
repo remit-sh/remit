@@ -1,5 +1,6 @@
 /target
 /remit.log
+/scopes/
 .DS_Store
 .worktrees/
 .obsidian/
