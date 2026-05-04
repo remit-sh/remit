@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/domain",
+    "crates/remit-config",
     "crates/file-logger",
     "crates/file-scope-store",
     "crates/claude-code-hook",

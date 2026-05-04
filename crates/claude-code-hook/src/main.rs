@@ -19,6 +19,14 @@ struct HookPayload {
 }
 
 fn main() {
+    let cfg = match remit_config::load() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("remit: config error: {e}; deny");
+            std::process::exit(2);
+        }
+    };
+
     let mut buf = String::new();
     std::io::stdin()
         .read_to_string(&mut buf)
@@ -62,6 +70,10 @@ fn main() {
     match classifier.classify(&input) {
         Verdict::Green => {}
         Verdict::Red { reason } => {
+            if cfg.dev_bypass {
+                eprintln!("[dev-bypass] would have denied: {reason}");
+                std::process::exit(0);
+            }
             eprintln!("{reason}");
             std::process::exit(2);
         }
