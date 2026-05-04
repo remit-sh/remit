@@ -10,3 +10,4 @@ See [TN-2026-001](TN-2026-001-technical-notes-and-doc-structure.md) for the syst
 |---|---|---|---|
 | [TN-2026-001](TN-2026-001-technical-notes-and-doc-structure.md) | Technical Notes and documentation structure | proposal | active |
 | [TN-2026-002](TN-2026-002-mvp-north-star.md) | MVP North Star | spec | draft |
+| [TN-2026-003](TN-2026-003-session-scope-acquisition.md) | Session scope acquisition | plan | draft |
