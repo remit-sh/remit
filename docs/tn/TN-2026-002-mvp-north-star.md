@@ -28,8 +28,11 @@ tags: [mvp, vision, classifier, scope, cli]
 
 ### 1. Session-start scope prompt
 
-- Hook fires on session start; if no scope, system dialog prompts; answer persisted against the session id.
-- TBC: `SessionStart` hook vs first `PreToolUse`.
+- If no scope is set for the session, prompt for one; answer persisted against the session id.
+- Trigger options:
+  - `SessionStart` hook — prompts up-front, before any tool. Cleanest UX, but only some hosts surface a prompt UI from `SessionStart`.
+  - First `PreToolUse` — works on every host, no extra hook needed. Downside: prompt appears mid-flow when the agent first reaches for a tool, which feels reactive.
+- Default direction: first `PreToolUse`, escalate to `SessionStart` on hosts that support a clean prompt path.
 
 ### 2. Scope inheritance
 
@@ -66,11 +69,18 @@ tags: [mvp, vision, classifier, scope, cli]
 - Allowlist/denylist syntax.
 - Network telemetry.
 - Cross-machine scope sharing.
-- Hosts other than Claude Code.
+
+## Hosts (stretch)
+
+MVP target is **Claude Code**. Other hosts ranked by adapter cost:
+
+1. **Cursor** — likely zero-cost. Cursor docs claim native Claude-Code-hook compat (subprocess + stdin JSON, exit 2 to deny). Same binary should work via a Cursor config entry. **Verify empirically.**
+2. **Codex** — clean port. Same architecture (subprocess + stdin JSON, exit 2 or `permissionDecision: deny`), different payload schema. New `codex-cli-hook` adapter crate; domain untouched. Caveat: upstream `PreToolUse` doesn't cover `WebSearch` and some shell paths ([openai/codex#20204](https://github.com/openai/codex/issues/20204)).
+3. **OpenCode** — blocked. Hooks are in-process TS plugins, and `tool.execute.before` doesn't fire for subagents ([anomalyco/opencode#5894](https://github.com/anomalyco/opencode/issues/5894)) — direct hit on component 2. Defer until upstream fixes.
 
 ## Open questions
 
-- Prompt UI delivery (system dialog vs hook output vs CLI).
+- Prompt UI delivery on each host (whether `SessionStart` can drive an interactive prompt, or fall back to first `PreToolUse`).
 - Template precedence and concatenation order.
 - Classifier failure UX — silent Red or surface error.
 - `remit.md` lookup: git-rooted or cwd-rooted.
