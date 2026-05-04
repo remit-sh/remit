@@ -49,17 +49,19 @@ pub trait ClassifierLogger {
 
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
-pub enum ScopeStoreError {
-    #[error("scope store backend unavailable")]
+pub enum ScopeError {
+    #[error("scope backend unavailable")]
     Unavailable(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
 pub trait ScopeReader {
-    fn scope_for(&self, session_id: &SessionId) -> Result<Option<Scope>, ScopeStoreError>;
+    /// Fail-closed: consumers must treat `Ok(None)` and `Err(_)` as
+    /// unknown state and emit Red. Never default to permissive.
+    fn scope_for(&self, session_id: &SessionId) -> Result<Option<Scope>, ScopeError>;
 }
 
 pub trait ScopeWriter {
-    fn assign(&self, session_id: &SessionId, scope: Scope) -> Result<(), ScopeStoreError>;
+    fn assign(&self, session_id: &SessionId, scope: Scope) -> Result<(), ScopeError>;
 }
 
 pub struct Classifier<L: ClassifierLogger> {
