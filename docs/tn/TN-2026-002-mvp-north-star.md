@@ -85,14 +85,6 @@ MVP target is **Claude Code**. Other hosts ranked by adapter cost:
 - Classifier failure UX — silent Red or surface error.
 - `remit.md` lookup: git-rooted or cwd-rooted.
 
-## Relationship to existing issues
-
-- #9 chain-walk → component 2.
-- #10 logger captures error + verdict → absorbed by component 6.
-- #11 Verdict::Red structured kind → supports component 3.
-- #12 runtime paths → prerequisite for component 6.
-- #14 `dev_bypass` audit marker → absorbed by component 6.
-
 ## Promotion criteria
 
 - Spec decomposed into per-component issues with acceptance criteria.
