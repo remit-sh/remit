@@ -54,4 +54,3 @@
 
 - **Remit vs Scope** — Remit is only the product name; the task is **Scope**.
 - **Claude Code hook vs git hook** — always qualify; never bare "hook".
-- **Code drift** — rename `Spawn`/`SpawnId` → `Subagent`/`SubagentId`; rename `Decision` enum → `Verdict` (stays binary Green/Red).

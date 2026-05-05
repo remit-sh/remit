@@ -51,8 +51,6 @@ Notable:
 - **Verdict** — Green or Red.
 - **Subagent** — any child agent, runtime-agnostic.
 
-Code still uses pre-rename names (`Decision`, `SpawnId`); follow the doc, the renames are tracked drift.
-
 # Project
 
 Rust workspace, hexagonal architecture.
@@ -119,6 +117,8 @@ After cloning, install the pre-push hook:
 # Test coverage
 
 Aim for near-100% coverage. Every public function and trait implementation gets a unit test. Every port gets an integration test exercising a real adapter, not just mocks. Bar tightens toward 100% as the codebase grows.
+
+Tests live in separate files, never appended to source modules. Unit tests for private items go in a sibling `tests.rs` declared as `#[cfg(test)] mod tests;`. Integration tests live under `tests/`.
 
 # Workflow
 
