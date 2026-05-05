@@ -47,7 +47,7 @@ fn main() {
     let scope_dir = fail_closed("scope dir", remit_config::scope_dir());
     let pending_dir = fail_closed("pending scope dir", remit_config::pending_scope_dir());
 
-    let log_path = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../remit.log"));
+    let log_path = fail_closed("log path", remit_config::log_path());
     let logger = FileLogger::new(log_path);
 
     let mut buf = String::new();

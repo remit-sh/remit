@@ -73,27 +73,35 @@ fn errors_on_directory_path() {
 }
 
 #[test]
-fn scope_dir_under_home() {
-    let got = subdir_from_home("scopes", Some("/tmp/fake-home".into())).unwrap();
-    assert_eq!(
-        got,
-        std::path::PathBuf::from("/tmp/fake-home/.remit/scopes")
-    );
+fn remit_home_defaults_to_home_dot_remit() {
+    let got = remit_home_from(None, Some("/tmp/fake-home".into())).unwrap();
+    assert_eq!(got, std::path::PathBuf::from("/tmp/fake-home/.remit"));
 }
 
 #[test]
-fn pending_scope_dir_under_home() {
-    let got = subdir_from_home("pending-scopes", Some("/tmp/fake-home".into())).unwrap();
-    assert_eq!(
-        got,
-        std::path::PathBuf::from("/tmp/fake-home/.remit/pending-scopes")
-    );
+fn remit_home_env_overrides_home() {
+    let got = remit_home_from(Some("/custom/remit".into()), Some("/tmp/fake-home".into())).unwrap();
+    assert_eq!(got, std::path::PathBuf::from("/custom/remit"));
 }
 
 #[test]
-fn subdir_errors_when_home_missing() {
+fn empty_remit_home_falls_back_to_home() {
+    let got = remit_home_from(Some(String::new()), Some("/tmp/fake-home".into())).unwrap();
+    assert_eq!(got, std::path::PathBuf::from("/tmp/fake-home/.remit"));
+}
+
+#[test]
+fn empty_home_with_no_remit_home_errors() {
     assert!(matches!(
-        subdir_from_home("scopes", None),
+        remit_home_from(None, Some(String::new())),
+        Err(ConfigError::HomeNotSet)
+    ));
+}
+
+#[test]
+fn errors_when_neither_env_var_set() {
+    assert!(matches!(
+        remit_home_from(None, None),
         Err(ConfigError::HomeNotSet)
     ));
 }

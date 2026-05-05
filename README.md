@@ -75,7 +75,9 @@ Builds this worktree and copies the binary to `~/.local/bin/remit-claude-code-ho
 |---|---|
 | `./swap-binary.sh` (any worktree) | Build + install this worktree's binary. Use when debugging a feature branch. |
 | `./restore-binary.sh` (any worktree) | Find main via `git worktree list`, build + install main's binary. Reverts to default. |
-| `./toggle-dev-bypass.sh` | Flip `dev_bypass` in `~/.remit/config.toml`. Hook still classifies every call but exits 0 on Red with a `[dev-bypass] would have denied: ...` line on stderr. |
+| `./toggle-dev-bypass.sh` | Flip `dev_bypass` in `<remit_home>/config.toml`. Hook still classifies every call but exits 0 on Red with a `[dev-bypass] would have denied: ...` line on stderr. |
+
+See [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) for the full configuration reference (env vars, `config.toml` schema, on-disk layout).
 
 Check what's running:
 

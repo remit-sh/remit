@@ -1,8 +1,11 @@
 //! Host-side configuration for Remit.
 //!
-//! Loads `~/.remit/config.toml`. Missing file → defaults. Malformed file or
-//! unknown fields → error (callers fail-closed). Domain config will join here
-//! as a `[domain]` section once it appears.
+//! Loads `<remit_home>/config.toml`. Missing file → defaults. Malformed file
+//! or unknown fields → error (callers fail-closed). Domain config will join
+//! here as a `[domain]` section once it appears.
+//!
+//! `remit_home` resolves to `$REMIT_HOME` if set and non-empty, else
+//! `$HOME/.remit`.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -24,7 +27,7 @@ pub struct RemitConfig {
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum ConfigError {
-    #[error("HOME environment variable is not set")]
+    #[error("neither REMIT_HOME nor HOME environment variable is set")]
     HomeNotSet,
     #[error("failed to read config file: {0}")]
     Io(#[from] io::Error),
@@ -32,25 +35,44 @@ pub enum ConfigError {
     Parse(#[from] toml::de::Error),
 }
 
-/// Load the user's config from `~/.remit/config.toml`.
+/// Load the user's config from `<remit_home>/config.toml`.
 pub fn load() -> Result<RemitConfig, ConfigError> {
-    let path = default_path()?;
+    let path = remit_home()?.join("config.toml");
     load_from(&path)
 }
 
-/// Directory where bound agent scopes are persisted: `~/.remit/scopes/`.
+/// Directory where bound agent scopes are persisted: `<remit_home>/scopes/`.
 pub fn scope_dir() -> Result<PathBuf, ConfigError> {
-    subdir_from_home("scopes", std::env::var("HOME").ok())
+    Ok(remit_home()?.join("scopes"))
 }
 
 /// Directory where parent-keyed pending scopes (staged for the next-spawned
-/// child) are persisted: `~/.remit/pending-scopes/`.
+/// child) are persisted: `<remit_home>/pending-scopes/`.
 pub fn pending_scope_dir() -> Result<PathBuf, ConfigError> {
-    subdir_from_home("pending-scopes", std::env::var("HOME").ok())
+    Ok(remit_home()?.join("pending-scopes"))
 }
 
-fn subdir_from_home(name: &str, home: Option<String>) -> Result<PathBuf, ConfigError> {
-    home.map(|h| PathBuf::from(h).join(".remit").join(name))
+/// Path to the audit log: `<remit_home>/remit.log`.
+pub fn log_path() -> Result<PathBuf, ConfigError> {
+    Ok(remit_home()?.join("remit.log"))
+}
+
+/// Resolve the Remit home directory: `$REMIT_HOME` if set and non-empty,
+/// else `$HOME/.remit`.
+fn remit_home() -> Result<PathBuf, ConfigError> {
+    remit_home_from(std::env::var("REMIT_HOME").ok(), std::env::var("HOME").ok())
+}
+
+fn remit_home_from(
+    remit_home_env: Option<String>,
+    home_env: Option<String>,
+) -> Result<PathBuf, ConfigError> {
+    if let Some(rh) = remit_home_env.filter(|s| !s.is_empty()) {
+        return Ok(PathBuf::from(rh));
+    }
+    home_env
+        .filter(|s| !s.is_empty())
+        .map(|h| PathBuf::from(h).join(".remit"))
         .ok_or(ConfigError::HomeNotSet)
 }
 
@@ -61,9 +83,4 @@ pub fn load_from(path: &Path) -> Result<RemitConfig, ConfigError> {
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(RemitConfig::default()),
         Err(e) => Err(ConfigError::Io(e)),
     }
-}
-
-fn default_path() -> Result<PathBuf, ConfigError> {
-    let home = std::env::var("HOME").map_err(|_| ConfigError::HomeNotSet)?;
-    Ok(PathBuf::from(home).join(".remit").join("config.toml"))
 }
