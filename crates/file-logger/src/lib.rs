@@ -4,19 +4,28 @@ use std::path::PathBuf;
 
 use domain::{ClassificationInput, ClassifierLogger};
 
+#[cfg(test)]
+mod tests;
+
 /// Append-only NDJSON logger. Implements [`ClassifierLogger`] and exposes
 /// [`log_line`] for ad-hoc adapter messages (hook lifecycle events, staging, etc.).
 /// Best-effort: IO errors are swallowed so a logging glitch never fails-open.
+///
+/// `markers`, when non-empty, are space-joined and prefixed to every line — used
+/// by the composition root to surface flags whose state the audit trail should
+/// reflect (e.g. `[dev-bypass-active]` when the firewall is disarmed).
 ///
 /// [`log_line`]: FileLogger::log_line
 #[derive(Clone)]
 pub struct FileLogger {
     path: PathBuf,
+    prefix: Option<String>,
 }
 
 impl FileLogger {
-    pub fn new(path: PathBuf) -> Self {
-        Self { path }
+    pub fn new(path: PathBuf, markers: Vec<String>) -> Self {
+        let prefix = (!markers.is_empty()).then(|| markers.join(" "));
+        Self { path, prefix }
     }
 
     /// Append a single line to the log. Best-effort — IO errors are swallowed
@@ -32,7 +41,10 @@ impl FileLogger {
         else {
             return;
         };
-        let _ = writeln!(file, "{line}");
+        let _ = match &self.prefix {
+            Some(prefix) => writeln!(file, "{prefix} {line}"),
+            None => writeln!(file, "{line}"),
+        };
     }
 }
 

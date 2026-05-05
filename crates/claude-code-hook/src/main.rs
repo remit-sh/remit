@@ -48,7 +48,7 @@ fn main() {
     let pending_dir = fail_closed("pending scope dir", remit_config::pending_scope_dir());
 
     let log_path = fail_closed("log path", remit_config::log_path());
-    let logger = FileLogger::new(log_path);
+    let logger = FileLogger::new(log_path, cfg.audit_markers());
 
     let mut buf = String::new();
     fail_closed("read stdin", std::io::stdin().read_to_string(&mut buf));

@@ -105,3 +105,14 @@ fn errors_when_neither_env_var_set() {
         Err(ConfigError::HomeNotSet)
     ));
 }
+
+#[test]
+fn audit_markers_empty_by_default() {
+    assert!(RemitConfig::default().audit_markers().is_empty());
+}
+
+#[test]
+fn audit_markers_includes_dev_bypass_when_set() {
+    let cfg = RemitConfig { dev_bypass: true };
+    assert_eq!(cfg.audit_markers(), vec!["[dev-bypass-active]".to_string()]);
+}

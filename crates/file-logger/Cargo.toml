@@ -6,3 +6,6 @@ rust-version.workspace = true
 
 [dependencies]
 domain = { path = "../domain" }
+
+[dev-dependencies]
+tempfile = "3"
