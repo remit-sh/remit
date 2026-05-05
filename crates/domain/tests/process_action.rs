@@ -12,7 +12,6 @@ fn input(session_id: &str, parent: Option<&str>) -> ClassificationInput {
     ClassificationInput {
         session: Session {
             id: SessionId::try_new(session_id).unwrap(),
-            subagent_id: None,
             parent_id: parent.map(|p| SessionId::try_new(p).unwrap()),
         },
         action: Action {

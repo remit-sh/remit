@@ -7,6 +7,7 @@ members = [
     "crates/file-scope-store",
     "crates/osascript-prompter",
     "crates/claude-code-hook",
+    "crates/remit-cli",
 ]
 
 [workspace.package]

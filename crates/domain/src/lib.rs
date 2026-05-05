@@ -15,9 +15,6 @@ pub mod test_support;
 pub struct SessionId(String);
 
 #[nutype(derive(Clone, Debug, Display, PartialEq, Eq, Hash, AsRef))]
-pub struct SubagentId(String);
-
-#[nutype(derive(Clone, Debug, Display, PartialEq, Eq, Hash, AsRef))]
 pub struct CallId(String);
 
 #[nutype(derive(Clone, Debug, Display, PartialEq, Eq, Hash, AsRef))]
@@ -35,9 +32,12 @@ pub struct Action {
 #[nutype(derive(Clone, Debug, Display, PartialEq, Eq, Hash, AsRef))]
 pub struct Scope(String);
 
+/// A scope-bearing identity. `id` is whatever uniquely identifies this agent for
+/// scope purposes — for in-process subagents the adapter sets it to the
+/// Claude-minted `agent_id`; for root and team-peer sessions it's the Claude
+/// session id. `parent_id` (if any) is used by `resolve_scope` for inheritance.
 pub struct Session {
     pub id: SessionId,
-    pub subagent_id: Option<SubagentId>,
     pub parent_id: Option<SessionId>,
 }
 
@@ -95,6 +95,17 @@ pub trait ScopeWriter {
     fn assign(&self, session_id: &SessionId, scope: Scope) -> Result<(), ScopeError>;
 }
 
+/// One-shot scope intent: parent records "the next child I spawn should run with this scope",
+/// child reifies it on its own start hook (`SubagentStart` or `SessionStart`).
+///
+/// `take` reads and removes atomically (or as close as the backend allows) — once consumed,
+/// the row is gone, so a second spawn without a fresh `set` won't accidentally reuse it.
+/// `set` returns the previous value (if any) so callers can warn on overwrite.
+pub trait PendingScopeStore {
+    fn set(&self, parent: &SessionId, scope: Scope) -> Result<Option<Scope>, ScopeError>;
+    fn take(&self, parent: &SessionId) -> Result<Option<Scope>, ScopeError>;
+}
+
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum PromptError {
@@ -120,20 +131,16 @@ pub enum AcquireScopeError {
     Prompt(#[from] PromptError),
 }
 
-// Single hop: walks session, then parent if present. The composition root
-// flattens deeper chains via CLAUDE_SESSION_ID, which always points at root.
-// Full chain-walk would need a SessionReader port; tracked separately.
+// Direct lookup, no parent walk. Each spawn must own its scope (set by the
+// parent via `prepare_next_scope`); silent inheritance from parent would let
+// narrowed children run under broader parent scopes — wrong direction. A
+// subagent without its own scope is denied (RedKind::SubagentParentMissingScope)
+// and the parent has to retry with a prepare.
 pub fn resolve_scope<R: ScopeReader>(
     reader: &R,
     session: &Session,
 ) -> Result<Option<Scope>, ScopeError> {
-    if let Some(scope) = reader.scope_for(&session.id)? {
-        return Ok(Some(scope));
-    }
-    if session.has_parent() {
-        return reader.scope_for(session.parent_id.as_ref().unwrap());
-    }
-    Ok(None)
+    reader.scope_for(&session.id)
 }
 
 /// Resolves the session's scope, prompting and persisting if absent on a root session.
@@ -163,6 +170,38 @@ where
         Err(PromptError::Cancelled) => Ok(None),
         Err(e @ PromptError::Unavailable(_)) => Err(AcquireScopeError::Prompt(e)),
     }
+}
+
+/// Records the parent's intent that the next agent it spawns should run with
+/// this scope. Idempotent: a second call before the spawn overwrites — the
+/// returned `Option<Scope>` carries the previous value so callers can warn.
+pub fn prepare_next_scope<P: PendingScopeStore>(
+    pending: &P,
+    parent: &SessionId,
+    scope: Scope,
+) -> Result<Option<Scope>, ScopeError> {
+    pending.set(parent, scope)
+}
+
+/// Consumes a pending child scope (if any) and writes it under the child's id.
+/// Called from the child-start hook (`SubagentStart` or `SessionStart`). Returns
+/// the materialised scope, or `Ok(None)` if no pending row existed (in which
+/// case the child falls back to inheriting via `resolve_scope` at first tool call).
+pub fn materialise_pending_scope<P, W>(
+    pending: &P,
+    scopes: &W,
+    parent: &SessionId,
+    child: &SessionId,
+) -> Result<Option<Scope>, ScopeError>
+where
+    P: PendingScopeStore,
+    W: ScopeWriter,
+{
+    let Some(scope) = pending.take(parent)? else {
+        return Ok(None);
+    };
+    scopes.assign(child, scope.clone())?;
+    Ok(Some(scope))
 }
 
 /// One end-to-end host-agnostic step: acquire the session's scope (prompting on a
@@ -219,7 +258,7 @@ impl<L: ClassifierLogger> Classifier<L> {
             Some(_) => Verdict::Green,
             None if input.session.has_parent() => Verdict::Red {
                 kind: RedKind::SubagentParentMissingScope,
-                reason: "subagent has no inherited scope; set scope on the parent session".into(),
+                reason: "subagent has no scope; parent must call `remit prepare-next-scope` before spawning".into(),
             },
             None => Verdict::Red {
                 kind: RedKind::NoScopeRoot,

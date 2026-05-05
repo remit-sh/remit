@@ -6,7 +6,6 @@ use common::FakeReader;
 fn session(id: &str, parent: Option<&str>) -> Session {
     Session {
         id: SessionId::try_new(id).unwrap(),
-        subagent_id: None,
         parent_id: parent.map(|p| SessionId::try_new(p).unwrap()),
     }
 }
@@ -21,44 +20,33 @@ fn returns_session_scope_when_present() {
 }
 
 #[test]
-fn falls_back_to_parent_scope_when_session_missing() {
+fn does_not_fall_back_to_parent_scope() {
     let parent_id = SessionId::try_new("parent").unwrap();
-    let scope = Scope::new("parent task");
-    let reader = FakeReader::new().with(parent_id, scope.clone());
+    let reader = FakeReader::new().with(parent_id, Scope::new("parent task"));
+    // Subagent has no own scope; parent has one. We refuse to inherit:
+    // narrowed children must not silently run under broader parent scopes.
     let got = resolve_scope(&reader, &session("child", Some("parent"))).unwrap();
-    assert_eq!(got, Some(scope));
+    assert_eq!(got, None);
 }
 
 #[test]
-fn returns_none_when_neither_session_nor_parent_has_scope() {
+fn returns_none_when_session_has_no_scope_row() {
     let reader = FakeReader::new();
     let got = resolve_scope(&reader, &session("child", Some("parent"))).unwrap();
     assert_eq!(got, None);
 }
 
 #[test]
-fn returns_none_when_no_parent_and_session_missing() {
+fn returns_none_for_root_with_no_scope() {
     let reader = FakeReader::new();
-    let got = resolve_scope(&reader, &session("child", None)).unwrap();
+    let got = resolve_scope(&reader, &session("root", None)).unwrap();
     assert_eq!(got, None);
 }
 
 #[test]
-fn ignores_self_referential_parent() {
-    let id = SessionId::try_new("self").unwrap();
-    let reader = FakeReader::new();
-    let s = Session {
-        id: id.clone(),
-        subagent_id: None,
-        parent_id: Some(id),
-    };
-    assert_eq!(resolve_scope(&reader, &s).unwrap(), None);
-}
-
-#[test]
-fn propagates_error_from_parent_lookup() {
-    let parent_id = SessionId::try_new("parent").unwrap();
-    let reader = FakeReader::new().failing_for(parent_id);
-    let result = resolve_scope(&reader, &session("child", Some("parent")));
+fn propagates_reader_error() {
+    let id = SessionId::try_new("child").unwrap();
+    let reader = FakeReader::new().failing_for(id);
+    let result = resolve_scope(&reader, &session("child", None));
     assert!(result.is_err());
 }

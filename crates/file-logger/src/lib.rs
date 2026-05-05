@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use domain::{ClassificationInput, ClassifierLogger};
 
+#[derive(Clone)]
 pub struct FileLogger {
     path: PathBuf,
 }
@@ -12,10 +13,15 @@ impl FileLogger {
     pub fn new(path: PathBuf) -> Self {
         Self { path }
     }
-}
 
-impl ClassifierLogger for FileLogger {
-    fn log_incoming(&self, input: &ClassificationInput) {
+    /// Append a free-form line. Used by the hook adapter to log non-classification
+    /// events (prepare, materialise, lookup) alongside the classifier-driven
+    /// `incoming:` lines, so the whole flow is visible in one log.
+    pub fn log_line(&self, line: &str) {
+        self.append(line);
+    }
+
+    fn append(&self, line: &str) {
         if let Some(parent) = self.path.parent() {
             let _ = create_dir_all(parent);
         }
@@ -26,19 +32,22 @@ impl ClassifierLogger for FileLogger {
         else {
             return;
         };
-        let subagent = input.session.subagent_id.as_ref().map(|s| s.as_ref());
+        let _ = writeln!(f, "{line}");
+    }
+}
+
+impl ClassifierLogger for FileLogger {
+    fn log_incoming(&self, input: &ClassificationInput) {
         let parent = input.session.parent_id.as_ref().map(|s| s.as_ref());
         let call = input.action.call_id.as_ref().map(|s| s.as_ref());
-        let _ = writeln!(
-            f,
-            "incoming: session_id={} subagent_id={:?} parent_id={:?} call_id={:?} kind={} working_dir={} args={}",
+        self.append(&format!(
+            "incoming: id={} parent_id={:?} call_id={:?} kind={} working_dir={} args={}",
             input.session.id,
-            subagent,
             parent,
             call,
             input.action.kind,
             input.working_dir.display(),
             input.action.args,
-        );
+        ));
     }
 }

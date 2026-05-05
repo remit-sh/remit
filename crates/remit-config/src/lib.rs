@@ -40,11 +40,22 @@ pub fn load() -> Result<RemitConfig, ConfigError> {
 
 /// Directory where session scopes are persisted: `~/.remit/scopes/`.
 pub fn scope_dir() -> Result<PathBuf, ConfigError> {
-    scope_dir_from_home(std::env::var("HOME").ok())
+    remit_subdir("scopes")
 }
 
-fn scope_dir_from_home(home: Option<String>) -> Result<PathBuf, ConfigError> {
-    home.map(|h| PathBuf::from(h).join(".remit").join("scopes"))
+/// Directory where parents stage a scope for their next-spawned child:
+/// `~/.remit/pending-scopes/`. One file per parent session id; consumed
+/// (read+removed) when the child's start hook fires.
+pub fn pending_scope_dir() -> Result<PathBuf, ConfigError> {
+    remit_subdir("pending-scopes")
+}
+
+fn remit_subdir(name: &str) -> Result<PathBuf, ConfigError> {
+    remit_subdir_from_home(std::env::var("HOME").ok(), name)
+}
+
+fn remit_subdir_from_home(home: Option<String>, name: &str) -> Result<PathBuf, ConfigError> {
+    home.map(|h| PathBuf::from(h).join(".remit").join(name))
         .ok_or(ConfigError::HomeNotSet)
 }
 

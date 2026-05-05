@@ -3,7 +3,6 @@ use domain::{Session, SessionId};
 fn session(id: &str, parent: Option<&str>) -> Session {
     Session {
         id: SessionId::try_new(id).unwrap(),
-        subagent_id: None,
         parent_id: parent.map(|p| SessionId::try_new(p).unwrap()),
     }
 }

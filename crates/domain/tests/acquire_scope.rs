@@ -6,7 +6,6 @@ use common::{FakePrompter, FakeReader, RecordingWriter};
 fn session(id: &str, parent: Option<&str>) -> Session {
     Session {
         id: SessionId::try_new(id).unwrap(),
-        subagent_id: None,
         parent_id: parent.map(|p| SessionId::try_new(p).unwrap()),
     }
 }
@@ -29,10 +28,11 @@ fn returns_existing_scope_without_prompting_or_writing() {
 }
 
 #[test]
-fn returns_parent_scope_without_prompting_or_writing() {
+fn subagent_with_parent_scope_does_not_inherit() {
+    // Even if the parent has a scope, the subagent does not silently inherit:
+    // each spawn must own its scope (set via `prepare_next_scope`).
     let parent_id = SessionId::try_new("parent").unwrap();
-    let scope = Scope::new("parent task");
-    let reader = FakeReader::new().with(parent_id, scope.clone());
+    let reader = FakeReader::new().with(parent_id, Scope::new("parent task"));
     let prompter = FakePrompter::returning(Scope::new("nope"));
     let prompt_calls = prompter.call_count();
     let writer = RecordingWriter::new();
@@ -46,7 +46,7 @@ fn returns_parent_scope_without_prompting_or_writing() {
     )
     .unwrap();
 
-    assert_eq!(got, Some(scope));
+    assert_eq!(got, None);
     assert_eq!(*prompt_calls.borrow(), 0);
     assert!(writes.borrow().is_empty());
 }
