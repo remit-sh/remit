@@ -38,6 +38,16 @@ pub fn load() -> Result<RemitConfig, ConfigError> {
     load_from(&path)
 }
 
+/// Directory where session scopes are persisted: `~/.remit/scopes/`.
+pub fn scope_dir() -> Result<PathBuf, ConfigError> {
+    scope_dir_from_home(std::env::var("HOME").ok())
+}
+
+fn scope_dir_from_home(home: Option<String>) -> Result<PathBuf, ConfigError> {
+    home.map(|h| PathBuf::from(h).join(".remit").join("scopes"))
+        .ok_or(ConfigError::HomeNotSet)
+}
+
 /// Load config from an explicit path. Missing file returns defaults.
 pub fn load_from(path: &Path) -> Result<RemitConfig, ConfigError> {
     match std::fs::read_to_string(path) {

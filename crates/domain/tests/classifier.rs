@@ -1,19 +1,19 @@
 use std::path::PathBuf;
 
 use domain::{
-    Action, ActionArgs, ActionKind, ClassificationInput, Classifier, Scope, Session, SessionId,
-    Verdict,
+    Action, ActionArgs, ActionKind, ClassificationInput, Classifier, RedKind, Scope, Session,
+    SessionId, Verdict,
 };
 
 mod common;
-use common::{FakeReader, RecordingLogger};
+use common::RecordingLogger;
 
-fn input(session_id: &str) -> ClassificationInput {
+fn input(session_id: &str, parent: Option<&str>) -> ClassificationInput {
     ClassificationInput {
         session: Session {
             id: SessionId::try_new(session_id).unwrap(),
             subagent_id: None,
-            parent_id: None,
+            parent_id: parent.map(|p| SessionId::try_new(p).unwrap()),
         },
         action: Action {
             call_id: None,
@@ -25,40 +25,39 @@ fn input(session_id: &str) -> ClassificationInput {
 }
 
 #[test]
-fn green_when_session_has_scope() {
-    let id = SessionId::try_new("sess").unwrap();
-    let reader = FakeReader::new().with(id, Scope::new("do the thing"));
+fn green_when_scope_is_present() {
     let logger = RecordingLogger::new();
     let calls = logger.call_count();
-    let classifier = Classifier::new(logger, reader);
+    let classifier = Classifier::new(logger);
+    let scope = Scope::new("do the thing");
     assert!(matches!(
-        classifier.classify(&input("sess")),
+        classifier.classify(&input("sess", None), Some(&scope)),
         Verdict::Green
     ));
     assert_eq!(*calls.borrow(), 1);
 }
 
 #[test]
-fn red_when_no_scope_set() {
-    let reader = FakeReader::new();
+fn red_no_scope_root_when_scope_absent_and_no_parent() {
     let logger = RecordingLogger::new();
     let calls = logger.call_count();
-    let classifier = Classifier::new(logger, reader);
-    let Verdict::Red { reason } = classifier.classify(&input("sess")) else {
+    let classifier = Classifier::new(logger);
+    let Verdict::Red { kind, reason } = classifier.classify(&input("sess", None), None) else {
         panic!("expected Red");
     };
+    assert_eq!(kind, RedKind::NoScopeRoot);
     assert!(reason.contains("no scope"));
     assert_eq!(*calls.borrow(), 1);
 }
 
 #[test]
-fn red_when_scope_store_fails() {
+fn red_subagent_parent_missing_scope_when_scope_absent_and_subagent() {
     let logger = RecordingLogger::new();
-    let calls = logger.call_count();
-    let classifier = Classifier::new(logger, FakeReader::failing());
-    let Verdict::Red { reason } = classifier.classify(&input("sess")) else {
+    let classifier = Classifier::new(logger);
+    let Verdict::Red { kind, reason } = classifier.classify(&input("child", Some("parent")), None)
+    else {
         panic!("expected Red");
     };
-    assert!(reason.contains("unavailable"));
-    assert_eq!(*calls.borrow(), 1);
+    assert_eq!(kind, RedKind::SubagentParentMissingScope);
+    assert!(reason.contains("parent"));
 }

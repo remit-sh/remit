@@ -71,3 +71,20 @@ fn errors_on_directory_path() {
     let result = load_from(dir.path());
     assert!(matches!(result, Err(ConfigError::Io(_))));
 }
+
+#[test]
+fn scope_dir_under_home() {
+    let got = scope_dir_from_home(Some("/tmp/fake-home".into())).unwrap();
+    assert_eq!(
+        got,
+        std::path::PathBuf::from("/tmp/fake-home/.remit/scopes")
+    );
+}
+
+#[test]
+fn scope_dir_errors_when_home_missing() {
+    assert!(matches!(
+        scope_dir_from_home(None),
+        Err(ConfigError::HomeNotSet)
+    ));
+}

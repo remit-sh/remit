@@ -41,6 +41,12 @@ pub struct Session {
     pub parent_id: Option<SessionId>,
 }
 
+impl Session {
+    pub fn has_parent(&self) -> bool {
+        self.parent_id.as_ref().is_some_and(|p| p != &self.id)
+    }
+}
+
 pub struct ClassificationInput {
     pub session: Session,
     pub action: Action,
@@ -49,7 +55,21 @@ pub struct ClassificationInput {
 
 pub enum Verdict {
     Green,
-    Red { reason: String },
+    Red { kind: RedKind, reason: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RedKind {
+    /// Root session, no scope present, no prompt has been attempted yet.
+    NoScopeRoot,
+    /// User dismissed the scope prompt.
+    ScopeSetupCancelled,
+    /// Prompter failed (e.g. osascript missing, IO error).
+    ScopeSetupUnavailable,
+    /// Subagent's parent walk found no scope; can't prompt mid-subagent.
+    SubagentParentMissingScope,
+    /// Scope reader or writer reported an error.
+    StoreUnavailable,
 }
 
 pub trait ClassifierLogger {
@@ -75,6 +95,31 @@ pub trait ScopeWriter {
     fn assign(&self, session_id: &SessionId, scope: Scope) -> Result<(), ScopeError>;
 }
 
+#[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
+pub enum PromptError {
+    #[error("prompt cancelled by user")]
+    Cancelled,
+    #[error("prompt unavailable")]
+    Unavailable(#[source] Box<dyn std::error::Error + Send + Sync>),
+}
+
+pub trait ScopePrompter {
+    /// Asks the user for a scope. Cancellation is a normal outcome, not an error
+    /// to the same degree as `Unavailable` — the composition root maps each to
+    /// a distinct verdict reason.
+    fn prompt(&self, session_id: &SessionId) -> Result<Scope, PromptError>;
+}
+
+#[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
+pub enum AcquireScopeError {
+    #[error("scope store: {0}")]
+    Store(#[from] ScopeError),
+    #[error("prompt: {0}")]
+    Prompt(#[from] PromptError),
+}
+
 // Single hop: walks session, then parent if present. The composition root
 // flattens deeper chains via CLAUDE_SESSION_ID, which always points at root.
 // Full chain-walk would need a SessionReader port; tracked separately.
@@ -85,36 +130,100 @@ pub fn resolve_scope<R: ScopeReader>(
     if let Some(scope) = reader.scope_for(&session.id)? {
         return Ok(Some(scope));
     }
-    if let Some(parent) = &session.parent_id
-        && parent != &session.id
-    {
-        return reader.scope_for(parent);
+    if session.has_parent() {
+        return reader.scope_for(session.parent_id.as_ref().unwrap());
     }
     Ok(None)
 }
 
-pub struct Classifier<L: ClassifierLogger, R: ScopeReader> {
-    logger: L,
-    scope_reader: R,
+/// Resolves the session's scope, prompting and persisting if absent on a root session.
+/// Subagents (sessions with a parent) never trigger a prompt — they must inherit.
+pub fn acquire_scope<R, P, W>(
+    reader: &R,
+    prompter: &P,
+    writer: &W,
+    session: &Session,
+) -> Result<Option<Scope>, AcquireScopeError>
+where
+    R: ScopeReader,
+    P: ScopePrompter,
+    W: ScopeWriter,
+{
+    if let Some(scope) = resolve_scope(reader, session)? {
+        return Ok(Some(scope));
+    }
+    if session.has_parent() {
+        return Ok(None);
+    }
+    match prompter.prompt(&session.id) {
+        Ok(scope) => {
+            writer.assign(&session.id, scope.clone())?;
+            Ok(Some(scope))
+        }
+        Err(PromptError::Cancelled) => Ok(None),
+        Err(e @ PromptError::Unavailable(_)) => Err(AcquireScopeError::Prompt(e)),
+    }
 }
 
-impl<L: ClassifierLogger, R: ScopeReader> Classifier<L, R> {
-    pub fn new(logger: L, scope_reader: R) -> Self {
-        Self {
-            logger,
-            scope_reader,
-        }
+/// One end-to-end host-agnostic step: acquire the session's scope (prompting on a
+/// root with no scope), then classify the action. The composition root in any host
+/// adapter calls this and only translates the resulting `Verdict` into its own
+/// transport (exit codes, JSON, etc.).
+pub fn process_action<R, P, W, L>(
+    input: &ClassificationInput,
+    reader: &R,
+    prompter: &P,
+    writer: &W,
+    classifier: &Classifier<L>,
+) -> Verdict
+where
+    R: ScopeReader,
+    P: ScopePrompter,
+    W: ScopeWriter,
+    L: ClassifierLogger,
+{
+    match acquire_scope(reader, prompter, writer, &input.session) {
+        Err(AcquireScopeError::Prompt(e)) => Verdict::Red {
+            kind: RedKind::ScopeSetupUnavailable,
+            reason: format!("scope prompt unavailable: {e}"),
+        },
+        Err(AcquireScopeError::Store(e)) => Verdict::Red {
+            kind: RedKind::StoreUnavailable,
+            reason: format!("scope store unavailable: {e}"),
+        },
+        Ok(scope) => match classifier.classify(input, scope.as_ref()) {
+            Verdict::Red {
+                kind: RedKind::NoScopeRoot,
+                ..
+            } => Verdict::Red {
+                kind: RedKind::ScopeSetupCancelled,
+                reason: "scope setup cancelled; nothing was set".into(),
+            },
+            v => v,
+        },
+    }
+}
+
+pub struct Classifier<L: ClassifierLogger> {
+    logger: L,
+}
+
+impl<L: ClassifierLogger> Classifier<L> {
+    pub fn new(logger: L) -> Self {
+        Self { logger }
     }
 
-    pub fn classify(&self, input: &ClassificationInput) -> Verdict {
+    pub fn classify(&self, input: &ClassificationInput, scope: Option<&Scope>) -> Verdict {
         self.logger.log_incoming(input);
-        match resolve_scope(&self.scope_reader, &input.session) {
-            Ok(Some(_)) => Verdict::Green,
-            Ok(None) => Verdict::Red {
-                reason: "no scope set for this session".into(),
+        match scope {
+            Some(_) => Verdict::Green,
+            None if input.session.has_parent() => Verdict::Red {
+                kind: RedKind::SubagentParentMissingScope,
+                reason: "subagent has no inherited scope; set scope on the parent session".into(),
             },
-            Err(e) => Verdict::Red {
-                reason: format!("scope store unavailable: {e}"),
+            None => Verdict::Red {
+                kind: RedKind::NoScopeRoot,
+                reason: "no scope set for this session".into(),
             },
         }
     }
