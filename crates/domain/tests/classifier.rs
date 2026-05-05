@@ -5,9 +5,6 @@ use domain::{
     Scope, Verdict,
 };
 
-mod common;
-use common::RecordingLogger;
-
 fn id(s: &str) -> AgentId {
     AgentId::try_new(s).unwrap()
 }
@@ -26,35 +23,28 @@ fn input(agent: Agent) -> ClassificationInput {
 
 #[test]
 fn green_when_scope_is_present() {
-    let logger = RecordingLogger::new();
-    let calls = logger.call_count();
-    let classifier = Classifier::new(logger);
+    let classifier = Classifier::new();
     let scope = Scope::try_new("do the thing").unwrap();
     assert!(matches!(
         classifier.classify(&input(Agent::root(id("sess"))), Some(&scope)),
         Verdict::Green
     ));
-    assert_eq!(*calls.borrow(), 1);
 }
 
 #[test]
 fn red_no_scope_root_when_scope_absent_and_no_parent() {
-    let logger = RecordingLogger::new();
-    let calls = logger.call_count();
-    let classifier = Classifier::new(logger);
+    let classifier = Classifier::new();
     let Verdict::Red { kind, reason } = classifier.classify(&input(Agent::root(id("sess"))), None)
     else {
         panic!("expected Red");
     };
     assert_eq!(kind, RedKind::NoScopeRoot);
     assert!(reason.contains("no scope"));
-    assert_eq!(*calls.borrow(), 1);
 }
 
 #[test]
 fn red_subagent_missing_scope_when_scope_absent_and_subagent() {
-    let logger = RecordingLogger::new();
-    let classifier = Classifier::new(logger);
+    let classifier = Classifier::new();
     let Verdict::Red { kind, reason } =
         classifier.classify(&input(Agent::subagent(id("child"), id("parent"))), None)
     else {

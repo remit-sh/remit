@@ -50,9 +50,11 @@ fn parse_osascript_output(output: &Output) -> Result<Scope, PromptError> {
         ));
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let answer = extract_text_returned(&stdout).ok_or_else(|| {
-        PromptError::Unavailable(format!("unexpected osascript output: {}", stdout.trim()).into())
-    })?;
+    // Never embed `stdout` in the error: on success it contains the user's typed
+    // scope (after the `text returned:` marker), and the error chain is persisted
+    // by `ClassifierLogger::log_error`.
+    let answer = extract_text_returned(&stdout)
+        .ok_or_else(|| PromptError::Unavailable("unexpected osascript output format".into()))?;
     let trimmed = answer.trim();
     if trimmed.is_empty() {
         return Err(PromptError::Cancelled);

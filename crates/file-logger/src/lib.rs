@@ -2,7 +2,7 @@ use std::fs::{OpenOptions, create_dir_all};
 use std::io::Write;
 use std::path::PathBuf;
 
-use domain::{ClassificationInput, ClassifierLogger};
+use domain::{ClassificationInput, ClassifierLogger, RedKind, Verdict};
 
 #[cfg(test)]
 mod tests;
@@ -61,5 +61,38 @@ impl ClassifierLogger for FileLogger {
             input.working_dir.display(),
             input.action.args,
         ));
+    }
+
+    fn log_outcome(&self, input: &ClassificationInput, verdict: &Verdict) {
+        let agent_id = &input.agent.id;
+        match verdict {
+            Verdict::Green => self.log_line(&format!("outcome: id={agent_id} verdict=Green")),
+            Verdict::Red { kind, reason } => self.log_line(&format!(
+                "outcome: id={agent_id} verdict=Red kind={} reason={reason:?}",
+                red_kind_label(kind),
+            )),
+        }
+    }
+
+    fn log_error(&self, input: &ClassificationInput, error: &(dyn std::error::Error + 'static)) {
+        let agent_id = &input.agent.id;
+        let mut chain = error.to_string();
+        let mut current = error.source();
+        while let Some(c) = current {
+            chain.push_str(": ");
+            chain.push_str(&c.to_string());
+            current = c.source();
+        }
+        self.log_line(&format!("error: id={agent_id} chain={chain:?}"));
+    }
+}
+
+fn red_kind_label(kind: &RedKind) -> &'static str {
+    match kind {
+        RedKind::NoScopeRoot => "NoScopeRoot",
+        RedKind::ScopeSetupCancelled => "ScopeSetupCancelled",
+        RedKind::ScopeSetupUnavailable => "ScopeSetupUnavailable",
+        RedKind::SubagentMissingScope => "SubagentMissingScope",
+        RedKind::StoreUnavailable => "StoreUnavailable",
     }
 }

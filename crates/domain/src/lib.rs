@@ -110,10 +110,20 @@ pub enum RedKind {
     StoreUnavailable,
 }
 
-/// Outbound observability port — the [`Classifier`] hands every classification
-/// here for adapters to log / surface as they like.
+/// Outbound observability port. Adapters log / surface classification events as they like.
+///
+/// Lifecycle of a single [`process_action`] call:
+/// - [`log_incoming`] — once, when the input arrives.
+/// - [`log_error`] — once, when scope acquisition fails and the error would otherwise be discarded into a Red [`Verdict`].
+/// - [`log_outcome`] — once, with the final [`Verdict`] returned to the caller (after any composition-level transformation).
+///
+/// [`log_incoming`]: ClassifierLogger::log_incoming
+/// [`log_error`]: ClassifierLogger::log_error
+/// [`log_outcome`]: ClassifierLogger::log_outcome
 pub trait ClassifierLogger {
     fn log_incoming(&self, input: &ClassificationInput);
+    fn log_outcome(&self, input: &ClassificationInput, verdict: &Verdict);
+    fn log_error(&self, input: &ClassificationInput, error: &(dyn std::error::Error + 'static));
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -214,12 +224,17 @@ where
 /// One host-agnostic step: acquire the agent's scope, then classify the action.
 /// Composition roots call this and translate the resulting [`Verdict`] into their
 /// own transport (exit codes, JSON, etc.).
+///
+/// Owns the audit trail: emits exactly one `log_incoming` and one `log_outcome`
+/// with the final Verdict, plus `log_error` when scope acquisition fails.
+#[allow(clippy::too_many_arguments)] // composition glue: each port is a distinct collaborator
 pub fn process_action<R, P, W, L>(
     input: &ClassificationInput,
     scope_reader: &R,
     prompter: &P,
     scope_writer: &W,
-    classifier: &Classifier<L>,
+    classifier: &Classifier,
+    logger: &L,
 ) -> Verdict
 where
     R: ScopeReader,
@@ -227,15 +242,21 @@ where
     W: ScopeWriter,
     L: ClassifierLogger,
 {
-    match acquire_scope(scope_reader, prompter, scope_writer, &input.agent) {
-        Err(AcquireScopeError::Prompt(e)) => Verdict::Red {
-            kind: RedKind::ScopeSetupUnavailable,
-            reason: format!("scope prompt unavailable: {e}"),
-        },
-        Err(AcquireScopeError::Store(e)) => Verdict::Red {
-            kind: RedKind::StoreUnavailable,
-            reason: format!("scope store unavailable: {e}"),
-        },
+    logger.log_incoming(input);
+    let verdict = match acquire_scope(scope_reader, prompter, scope_writer, &input.agent) {
+        Err(e) => {
+            logger.log_error(input, &e);
+            match e {
+                AcquireScopeError::Prompt(pe) => Verdict::Red {
+                    kind: RedKind::ScopeSetupUnavailable,
+                    reason: format!("scope prompt unavailable: {pe}"),
+                },
+                AcquireScopeError::Store(se) => Verdict::Red {
+                    kind: RedKind::StoreUnavailable,
+                    reason: format!("scope store unavailable: {se}"),
+                },
+            }
+        }
         Ok(scope) => match classifier.classify(input, scope.as_ref()) {
             Verdict::Red {
                 kind: RedKind::NoScopeRoot,
@@ -246,25 +267,24 @@ where
             },
             v => v,
         },
-    }
+    };
+    logger.log_outcome(input, &verdict);
+    verdict
 }
 
 /// Maps one [`ClassificationInput`] to one [`Verdict`]. Pure: presence of scope → Green;
 /// absence → Red with the appropriate [`RedKind`]. The semantic firewall.
 /// Vocab: [Classifier](../../../docs/UBIQUITOUS_LANGUAGE.md#classification).
-pub struct Classifier<L: ClassifierLogger> {
-    logger: L,
-}
+pub struct Classifier;
 
-impl<L: ClassifierLogger> Classifier<L> {
-    pub fn new(logger: L) -> Self {
-        Self { logger }
+impl Classifier {
+    pub fn new() -> Self {
+        Self
     }
 
-    /// Classify one action. Logs the incoming input via [`ClassifierLogger`] before
-    /// emitting the verdict. Always returns either Green or a Red with a typed reason.
+    /// Classify one action. Always returns either Green or a Red with a typed reason.
+    /// Pure — observability is owned by [`process_action`] via [`ClassifierLogger`].
     pub fn classify(&self, input: &ClassificationInput, scope: Option<&Scope>) -> Verdict {
-        self.logger.log_incoming(input);
         match scope {
             Some(_) => Verdict::Green,
             None if input.agent.has_parent() => Verdict::Red {
@@ -277,5 +297,11 @@ impl<L: ClassifierLogger> Classifier<L> {
                 reason: "no scope set for this agent".into(),
             },
         }
+    }
+}
+
+impl Default for Classifier {
+    fn default() -> Self {
+        Self::new()
     }
 }

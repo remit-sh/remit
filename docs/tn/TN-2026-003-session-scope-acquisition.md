@@ -46,7 +46,7 @@ child's PreToolUse(any tool)                          ──► classifier reads
 - `ScopeWriter::assign(agent_id, scope)` — bind a Scope to an Agent.
 - `PendingScopeStore::set(parent_id, scope)` / `take(parent_id) → Option<Scope>` — single-slot per parent; `take` consumes.
 - `ScopePrompter::prompt(agent_id) → Scope` — root-only; `Cancelled` and `Unavailable` are distinct errors.
-- `ClassifierLogger::log_incoming(input)` — outbound observability.
+- `ClassifierLogger` — outbound observability. Three hooks: `log_incoming(input)`, `log_outcome(input, verdict)`, `log_error(input, error)`. See [TN-2026-004](TN-2026-004-classifier-logger-error-verdict.md).
 
 ## Domain types
 

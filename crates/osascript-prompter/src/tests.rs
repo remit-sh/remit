@@ -70,6 +70,30 @@ fn missing_text_returned_marker_is_unavailable() {
 }
 
 #[test]
+fn malformed_output_error_does_not_leak_stdout_content() {
+    // A successful osascript run that doesn't carry the expected `text returned:`
+    // marker still has the user's typed scope sitting in stdout. The error
+    // chain is persisted by `log_error` — it must never contain that text.
+    let scope_text = "secret scope content";
+    let out = output(0, scope_text, "");
+    let err = parse_osascript_output(&out).unwrap_err();
+    let PromptError::Unavailable(boxed) = err else {
+        panic!("expected Unavailable");
+    };
+    let mut chain = boxed.to_string();
+    let mut current = boxed.source();
+    while let Some(c) = current {
+        chain.push_str(": ");
+        chain.push_str(&c.to_string());
+        current = c.source();
+    }
+    assert!(
+        !chain.contains(scope_text),
+        "scope text leaked into error chain: {chain}"
+    );
+}
+
+#[test]
 fn answer_with_embedded_comma_is_preserved() {
     let out = output(
         0,

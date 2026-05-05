@@ -158,13 +158,14 @@ fn handle_pre_tool_use(
     };
 
     let prompter = OsascriptPrompter::new();
-    let classifier = Classifier::new(logger.clone());
+    let classifier = Classifier::new();
     let verdict = process_action(
         &classifier_input,
         scope_store,
         &prompter,
         scope_store,
         &classifier,
+        logger,
     );
 
     match verdict {

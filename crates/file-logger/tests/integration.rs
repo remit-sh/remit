@@ -1,0 +1,126 @@
+use std::fs;
+use std::path::PathBuf;
+
+use domain::{
+    Action, ActionArgs, ActionKind, Agent, AgentId, ClassificationInput, ClassifierLogger, RedKind,
+    Verdict,
+};
+use file_logger::FileLogger;
+use tempfile::tempdir;
+
+fn input() -> ClassificationInput {
+    ClassificationInput {
+        agent: Agent::root(AgentId::try_new("sess").unwrap()),
+        action: Action {
+            call_id: None,
+            kind: ActionKind::new("Bash"),
+            args: ActionArgs::new("ls"),
+        },
+        working_dir: PathBuf::from("/tmp"),
+    }
+}
+
+#[test]
+fn log_incoming_writes_one_line() {
+    let dir = tempdir().unwrap();
+    let log = dir.path().join("remit.log");
+    let logger = FileLogger::new(log.clone());
+
+    logger.log_incoming(&input());
+
+    let content = fs::read_to_string(&log).unwrap();
+    let lines: Vec<&str> = content.lines().collect();
+    assert_eq!(lines.len(), 1);
+    assert!(lines[0].starts_with("incoming: "));
+    assert!(lines[0].contains("id=sess"));
+    assert!(lines[0].contains("kind=Bash"));
+}
+
+#[test]
+fn log_outcome_green() {
+    let dir = tempdir().unwrap();
+    let log = dir.path().join("remit.log");
+    let logger = FileLogger::new(log.clone());
+
+    logger.log_outcome(&input(), &Verdict::Green);
+
+    let content = fs::read_to_string(&log).unwrap();
+    assert_eq!(content.trim(), "outcome: id=sess verdict=Green");
+}
+
+#[test]
+fn log_outcome_red_includes_kind_and_reason() {
+    let dir = tempdir().unwrap();
+    let log = dir.path().join("remit.log");
+    let logger = FileLogger::new(log.clone());
+
+    logger.log_outcome(
+        &input(),
+        &Verdict::Red {
+            kind: RedKind::ScopeSetupCancelled,
+            reason: "scope setup cancelled; nothing was set".into(),
+        },
+    );
+
+    let content = fs::read_to_string(&log).unwrap();
+    assert!(content.contains("verdict=Red"));
+    assert!(content.contains("kind=ScopeSetupCancelled"));
+    assert!(content.contains("scope setup cancelled"));
+}
+
+#[test]
+fn log_error_walks_source_chain() {
+    use std::error::Error;
+    use std::fmt;
+
+    #[derive(Debug)]
+    struct Outer(Inner);
+    #[derive(Debug)]
+    struct Inner(&'static str);
+
+    impl fmt::Display for Outer {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "outer wrapper")
+        }
+    }
+    impl fmt::Display for Inner {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "inner cause: {}", self.0)
+        }
+    }
+    impl Error for Outer {
+        fn source(&self) -> Option<&(dyn Error + 'static)> {
+            Some(&self.0)
+        }
+    }
+    impl Error for Inner {}
+
+    let dir = tempdir().unwrap();
+    let log = dir.path().join("remit.log");
+    let logger = FileLogger::new(log.clone());
+
+    let err = Outer(Inner("disk full"));
+    logger.log_error(&input(), &err);
+
+    let content = fs::read_to_string(&log).unwrap();
+    assert!(content.starts_with("error: id=sess "));
+    assert!(content.contains("outer wrapper"));
+    assert!(content.contains("inner cause"));
+    assert!(content.contains("disk full"));
+}
+
+#[test]
+fn appends_across_multiple_calls() {
+    let dir = tempdir().unwrap();
+    let log = dir.path().join("remit.log");
+    let logger = FileLogger::new(log.clone());
+
+    logger.log_incoming(&input());
+    logger.log_outcome(&input(), &Verdict::Green);
+
+    let content = fs::read_to_string(&log).unwrap();
+    let lines: Vec<&str> = content.lines().collect();
+    assert_eq!(lines.len(), 2);
+    assert!(lines[0].starts_with("incoming: "));
+    assert!(lines[1].starts_with("outcome: "));
+}
