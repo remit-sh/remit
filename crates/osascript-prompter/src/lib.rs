@@ -1,12 +1,14 @@
 use std::process::{Command, Output};
 
-use domain::{PromptError, Scope, ScopePrompter, SessionId};
+use domain::{AgentId, PromptError, Scope, ScopePrompter};
 
 #[cfg(test)]
 mod tests;
 
 const SCRIPT: &str = r#"display dialog "Set scope for this session" default answer "" with title "Remit" buttons {"Cancel", "Set scope"} default button "Set scope""#;
 
+/// macOS-only [`ScopePrompter`]: pops a native dialog via `osascript` and reads
+/// the typed answer. Cancel/empty → `Cancelled`; spawn-or-IO failure → `Unavailable`.
 pub struct OsascriptPrompter;
 
 impl OsascriptPrompter {
@@ -22,7 +24,7 @@ impl Default for OsascriptPrompter {
 }
 
 impl ScopePrompter for OsascriptPrompter {
-    fn prompt(&self, _session_id: &SessionId) -> Result<Scope, PromptError> {
+    fn prompt(&self, _agent_id: &AgentId) -> Result<Scope, PromptError> {
         let output = Command::new("osascript")
             .arg("-e")
             .arg(SCRIPT)
@@ -55,7 +57,8 @@ fn parse_osascript_output(output: &Output) -> Result<Scope, PromptError> {
     if trimmed.is_empty() {
         return Err(PromptError::Cancelled);
     }
-    Ok(Scope::new(trimmed.to_string()))
+    Scope::try_new(trimmed.to_string())
+        .map_err(|e| PromptError::Unavailable(format!("invalid scope: {e}").into()))
 }
 
 fn extract_text_returned(stdout: &str) -> Option<&str> {

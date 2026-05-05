@@ -7,13 +7,13 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use domain::{
-    ClassificationInput, ClassifierLogger, PromptError, Scope, ScopeError, ScopePrompter,
-    ScopeReader, ScopeWriter, SessionId,
+    AgentId, ClassificationInput, ClassifierLogger, PromptError, Scope, ScopePrompter, ScopeReader,
+    ScopeStoreError, ScopeWriter,
 };
 
 pub struct FakeReader {
-    map: HashMap<SessionId, Scope>,
-    fail_for: HashSet<SessionId>,
+    map: HashMap<AgentId, Scope>,
+    fail_for: HashSet<AgentId>,
     fail_all: bool,
 }
 
@@ -26,7 +26,7 @@ impl FakeReader {
         }
     }
 
-    pub fn with(mut self, id: SessionId, scope: Scope) -> Self {
+    pub fn with(mut self, id: AgentId, scope: Scope) -> Self {
         self.map.insert(id, scope);
         self
     }
@@ -39,18 +39,18 @@ impl FakeReader {
         }
     }
 
-    pub fn failing_for(mut self, id: SessionId) -> Self {
+    pub fn failing_for(mut self, id: AgentId) -> Self {
         self.fail_for.insert(id);
         self
     }
 }
 
 impl ScopeReader for FakeReader {
-    fn scope_for(&self, session_id: &SessionId) -> Result<Option<Scope>, ScopeError> {
-        if self.fail_all || self.fail_for.contains(session_id) {
-            return Err(ScopeError::Unavailable("fake failure".into()));
+    fn scope_for(&self, agent_id: &AgentId) -> Result<Option<Scope>, ScopeStoreError> {
+        if self.fail_all || self.fail_for.contains(agent_id) {
+            return Err(ScopeStoreError::Unavailable("fake failure".into()));
         }
-        Ok(self.map.get(session_id).cloned())
+        Ok(self.map.get(agent_id).cloned())
     }
 }
 
@@ -113,7 +113,7 @@ impl FakePrompter {
 }
 
 impl ScopePrompter for FakePrompter {
-    fn prompt(&self, _session_id: &SessionId) -> Result<Scope, PromptError> {
+    fn prompt(&self, _agent_id: &AgentId) -> Result<Scope, PromptError> {
         *self.calls.borrow_mut() += 1;
         match &self.outcome {
             PromptOutcome::Returns(s) => Ok(s.clone()),
@@ -124,7 +124,7 @@ impl ScopePrompter for FakePrompter {
 }
 
 pub struct RecordingWriter {
-    writes: Rc<RefCell<Vec<(SessionId, Scope)>>>,
+    writes: Rc<RefCell<Vec<(AgentId, Scope)>>>,
     fail: bool,
 }
 
@@ -143,17 +143,17 @@ impl RecordingWriter {
         }
     }
 
-    pub fn writes(&self) -> Rc<RefCell<Vec<(SessionId, Scope)>>> {
+    pub fn writes(&self) -> Rc<RefCell<Vec<(AgentId, Scope)>>> {
         Rc::clone(&self.writes)
     }
 }
 
 impl ScopeWriter for RecordingWriter {
-    fn assign(&self, session_id: &SessionId, scope: Scope) -> Result<(), ScopeError> {
+    fn assign(&self, agent_id: &AgentId, scope: Scope) -> Result<(), ScopeStoreError> {
         if self.fail {
-            return Err(ScopeError::Unavailable("fake writer failure".into()));
+            return Err(ScopeStoreError::Unavailable("fake writer failure".into()));
         }
-        self.writes.borrow_mut().push((session_id.clone(), scope));
+        self.writes.borrow_mut().push((agent_id.clone(), scope));
         Ok(())
     }
 }

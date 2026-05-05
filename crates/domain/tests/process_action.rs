@@ -1,20 +1,24 @@
 use std::path::PathBuf;
 
 use domain::{
-    Action, ActionArgs, ActionKind, ClassificationInput, Classifier, RedKind, Scope, Session,
-    SessionId, Verdict, process_action,
+    Action, ActionArgs, ActionKind, Agent, AgentId, ClassificationInput, Classifier, RedKind,
+    Scope, Verdict, process_action,
 };
 
 mod common;
 use common::{FakePrompter, FakeReader, RecordingLogger, RecordingWriter};
 
-fn input(session_id: &str, parent: Option<&str>) -> ClassificationInput {
+fn id(s: &str) -> AgentId {
+    AgentId::try_new(s).unwrap()
+}
+
+fn scope(s: &str) -> Scope {
+    Scope::try_new(s).unwrap()
+}
+
+fn input(agent: Agent) -> ClassificationInput {
     ClassificationInput {
-        session: Session {
-            id: SessionId::try_new(session_id).unwrap(),
-            subagent_id: None,
-            parent_id: parent.map(|p| SessionId::try_new(p).unwrap()),
-        },
+        agent,
         action: Action {
             call_id: None,
             kind: ActionKind::new("Bash"),
@@ -26,13 +30,12 @@ fn input(session_id: &str, parent: Option<&str>) -> ClassificationInput {
 
 #[test]
 fn green_when_existing_scope_present() {
-    let id = SessionId::try_new("sess").unwrap();
-    let reader = FakeReader::new().with(id, Scope::new("do the thing"));
-    let prompter = FakePrompter::returning(Scope::new("nope"));
+    let reader = FakeReader::new().with(id("sess"), scope("do the thing"));
+    let prompter = FakePrompter::returning(scope("nope"));
     let writer = RecordingWriter::new();
     let classifier = Classifier::new(RecordingLogger::new());
     let v = process_action(
-        &input("sess", None),
+        &input(Agent::root(id("sess"))),
         &reader,
         &prompter,
         &writer,
@@ -44,12 +47,12 @@ fn green_when_existing_scope_present() {
 #[test]
 fn green_after_successful_prompt_and_persist() {
     let reader = FakeReader::new();
-    let prompter = FakePrompter::returning(Scope::new("freshly typed"));
+    let prompter = FakePrompter::returning(scope("freshly typed"));
     let writer = RecordingWriter::new();
     let writes = writer.writes();
     let classifier = Classifier::new(RecordingLogger::new());
     let v = process_action(
-        &input("root", None),
+        &input(Agent::root(id("root"))),
         &reader,
         &prompter,
         &writer,
@@ -66,7 +69,7 @@ fn red_scope_setup_cancelled_when_prompt_cancelled() {
     let writer = RecordingWriter::new();
     let classifier = Classifier::new(RecordingLogger::new());
     let Verdict::Red { kind, .. } = process_action(
-        &input("root", None),
+        &input(Agent::root(id("root"))),
         &reader,
         &prompter,
         &writer,
@@ -84,7 +87,7 @@ fn red_scope_setup_unavailable_when_prompt_fails() {
     let writer = RecordingWriter::new();
     let classifier = Classifier::new(RecordingLogger::new());
     let Verdict::Red { kind, .. } = process_action(
-        &input("root", None),
+        &input(Agent::root(id("root"))),
         &reader,
         &prompter,
         &writer,
@@ -98,11 +101,11 @@ fn red_scope_setup_unavailable_when_prompt_fails() {
 #[test]
 fn red_store_unavailable_when_reader_fails() {
     let reader = FakeReader::failing();
-    let prompter = FakePrompter::returning(Scope::new("nope"));
+    let prompter = FakePrompter::returning(scope("nope"));
     let writer = RecordingWriter::new();
     let classifier = Classifier::new(RecordingLogger::new());
     let Verdict::Red { kind, .. } = process_action(
-        &input("root", None),
+        &input(Agent::root(id("root"))),
         &reader,
         &prompter,
         &writer,
@@ -114,14 +117,14 @@ fn red_store_unavailable_when_reader_fails() {
 }
 
 #[test]
-fn red_subagent_parent_missing_scope_when_subagent_inheritance_fails() {
+fn red_subagent_missing_scope_when_subagent_has_no_bound_scope() {
     let reader = FakeReader::new();
-    let prompter = FakePrompter::returning(Scope::new("never used"));
+    let prompter = FakePrompter::returning(scope("never used"));
     let prompt_calls = prompter.call_count();
     let writer = RecordingWriter::new();
     let classifier = Classifier::new(RecordingLogger::new());
     let Verdict::Red { kind, .. } = process_action(
-        &input("child", Some("parent")),
+        &input(Agent::subagent(id("child"), id("parent"))),
         &reader,
         &prompter,
         &writer,
@@ -129,6 +132,6 @@ fn red_subagent_parent_missing_scope_when_subagent_inheritance_fails() {
     ) else {
         panic!("expected Red");
     };
-    assert_eq!(kind, RedKind::SubagentParentMissingScope);
+    assert_eq!(kind, RedKind::SubagentMissingScope);
     assert_eq!(*prompt_calls.borrow(), 0);
 }

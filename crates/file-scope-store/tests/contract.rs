@@ -1,8 +1,8 @@
 use std::fs;
 
-use domain::test_support::scope_store_contract;
-use domain::{ScopeError, ScopeReader, SessionId};
-use file_scope_store::FileScopeStore;
+use domain::test_support::{pending_scope_store_contract, scope_store_contract};
+use domain::{AgentId, ScopeReader, ScopeStoreError};
+use file_scope_store::{FilePendingScopeStore, FileScopeStore};
 use tempfile::tempdir;
 
 #[test]
@@ -13,13 +13,20 @@ fn satisfies_scope_store_contract() {
 }
 
 #[test]
-fn corrupt_file_is_unavailable_not_absent() {
+fn corrupt_scope_file_is_unavailable_not_absent() {
     let dir = tempdir().unwrap();
     let store = FileScopeStore::new(dir.path().to_path_buf());
-    let id = SessionId::try_new("sess").unwrap();
+    let id = AgentId::try_new("sess").unwrap();
     fs::write(dir.path().join("sess.json"), "").unwrap();
     assert!(matches!(
         store.scope_for(&id),
-        Err(ScopeError::Unavailable(_))
+        Err(ScopeStoreError::Unavailable(_))
     ));
+}
+
+#[test]
+fn satisfies_pending_scope_store_contract() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().to_path_buf();
+    pending_scope_store_contract(|| FilePendingScopeStore::new(path.clone()));
 }

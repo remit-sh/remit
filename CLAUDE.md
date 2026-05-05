@@ -32,6 +32,12 @@
 - Unrelated dead code: mention, don't delete.
 - Remove imports/variables/functions your changes orphaned. Don't remove pre-existing dead code unless asked.
 
+## Naming
+
+- Names should make it clear what a variable is. Reflect the type when not obvious from immediate context.
+- Prefer descriptive over terse, even where Rust convention permits short names. A composition root threading multiple stores is clearer with `scope_store` / `pending_scope_store` than `scopes` / `pending`. `payload` beats `p`.
+- Short names (`s`, `v`, `i`) are fine only when the variable's whole use is constrained to its declaration line (or at most ~3 lines).
+
 ## Goal-driven execution
 
 - Transform tasks into verifiable goals before starting:

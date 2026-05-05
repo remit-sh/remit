@@ -1,20 +1,20 @@
 use std::path::PathBuf;
 
 use domain::{
-    Action, ActionArgs, ActionKind, ClassificationInput, Classifier, RedKind, Scope, Session,
-    SessionId, Verdict,
+    Action, ActionArgs, ActionKind, Agent, AgentId, ClassificationInput, Classifier, RedKind,
+    Scope, Verdict,
 };
 
 mod common;
 use common::RecordingLogger;
 
-fn input(session_id: &str, parent: Option<&str>) -> ClassificationInput {
+fn id(s: &str) -> AgentId {
+    AgentId::try_new(s).unwrap()
+}
+
+fn input(agent: Agent) -> ClassificationInput {
     ClassificationInput {
-        session: Session {
-            id: SessionId::try_new(session_id).unwrap(),
-            subagent_id: None,
-            parent_id: parent.map(|p| SessionId::try_new(p).unwrap()),
-        },
+        agent,
         action: Action {
             call_id: None,
             kind: ActionKind::new("Bash"),
@@ -29,9 +29,9 @@ fn green_when_scope_is_present() {
     let logger = RecordingLogger::new();
     let calls = logger.call_count();
     let classifier = Classifier::new(logger);
-    let scope = Scope::new("do the thing");
+    let scope = Scope::try_new("do the thing").unwrap();
     assert!(matches!(
-        classifier.classify(&input("sess", None), Some(&scope)),
+        classifier.classify(&input(Agent::root(id("sess"))), Some(&scope)),
         Verdict::Green
     ));
     assert_eq!(*calls.borrow(), 1);
@@ -42,7 +42,8 @@ fn red_no_scope_root_when_scope_absent_and_no_parent() {
     let logger = RecordingLogger::new();
     let calls = logger.call_count();
     let classifier = Classifier::new(logger);
-    let Verdict::Red { kind, reason } = classifier.classify(&input("sess", None), None) else {
+    let Verdict::Red { kind, reason } = classifier.classify(&input(Agent::root(id("sess"))), None)
+    else {
         panic!("expected Red");
     };
     assert_eq!(kind, RedKind::NoScopeRoot);
@@ -51,13 +52,14 @@ fn red_no_scope_root_when_scope_absent_and_no_parent() {
 }
 
 #[test]
-fn red_subagent_parent_missing_scope_when_scope_absent_and_subagent() {
+fn red_subagent_missing_scope_when_scope_absent_and_subagent() {
     let logger = RecordingLogger::new();
     let classifier = Classifier::new(logger);
-    let Verdict::Red { kind, reason } = classifier.classify(&input("child", Some("parent")), None)
+    let Verdict::Red { kind, reason } =
+        classifier.classify(&input(Agent::subagent(id("child"), id("parent"))), None)
     else {
         panic!("expected Red");
     };
-    assert_eq!(kind, RedKind::SubagentParentMissingScope);
-    assert!(reason.contains("parent"));
+    assert_eq!(kind, RedKind::SubagentMissingScope);
+    assert!(reason.contains("subagent has no scope"));
 }

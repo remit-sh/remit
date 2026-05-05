@@ -1,252 +1,113 @@
 ---
 number: 2026-003
-title: Session scope acquisition
+title: Agent scope acquisition
 kind: plan
-status: draft
+status: active
 issue: "#17"
-tags: [scope, prompter, hook, mvp]
+tags: [scope, prompter, hook, mvp, bundled-scope]
 ---
 
-# TN-2026-003: Session scope acquisition
+# TN-2026-003: Agent scope acquisition
 
-> Plan for #17. Slice covers MVP components 1 and 2 of [TN-2026-002](TN-2026-002-mvp-north-star.md).
+> How every **Agent** — root, in-process subagent, peer-process subagent — comes to have its own **Scope**. Implements #17. Replaces the earlier draft of this TN, which proposed parent-walk inheritance.
 
 ## Goal
 
-- Every Claude Code tool call has a scope to classify against.
-- User sets scope through a system UI dialog popped by the hook itself. No file editing, no CLI.
-- Subagents (both topologies) inherit the **root** session's scope.
+- Every tool call has a Scope to classify against.
+- Each Agent has its **own** Scope. No inheritance from parent.
+- Two acquisition paths, picked by Agent topology:
+  - **Root**: user types it via a system dialog at first tool call.
+  - **Subagent** (in-process or peer-process): lifted automatically from the parent's spawn-tool payload (`Agent.prompt`) at spawn time. **Bundled scope.**
 
-## Already done
+## Why bundled, not inherited
 
-- `Session { id, subagent_id, parent_id }` domain type.
-- `ScopeReader` / `ScopeWriter` ports.
-- `FileScopeStore` adapter (one `<id>.json` per session).
-- `resolve_scope` — single hop: session, then `parent_id`.
-- `Classifier::classify` — Green if scope present, Red ("no scope set") if absent, Red ("unavailable") on error.
-- Hook builds `parent_id` from `CLAUDE_SESSION_ID`, which always points at root (see [`docs/diag/`](../diag/README.md)).
+- Subagent inheritance silently runs a child under the parent's broader Scope. Wrong direction — children should be narrower or in some cases different, not equal.
+- The parent's spawn intent is already in the spawn-tool args; remit lifts it without touching the agent. **Invisible to agents** — no remit-aware behaviour required.
+- Hook payloads make this safe: the Scope is captured at the parent's `PreToolUse` (which the child can't influence) and bound to the child's identity at its start hook.
 
-Inheritance is already correct for both topologies: single hop suffices because the env var is fork-time-set to root, even for nested team-spawn → in-process chains.
-
-## Gaps
-
-1. **Prompt mechanism**: no way to ask the user for a scope. Today the Red reason is just `"no scope set for this session"`.
-2. **Persistence wiring**: `FileScopeStore::assign` exists but nothing in the runtime calls it.
-3. **Scope dir**: `claude-code-hook/main.rs` hardcodes a compile-time path (`concat!(env!("CARGO_MANIFEST_DIR"), "/../../scopes")`). Fine for the build tree, wrong for installed use.
-4. **Reason taxonomy**: a bare `String` reason can't differentiate "you cancelled the prompt" from "your subagent's parent has no scope" from "the prompter is broken." All three need different remediation.
-
-## Design
-
-### 1. Synchronous system dialog from the hook
-
-When the hook detects no scope on a root session, it shells out to `osascript` to pop a native macOS dialog with a text field. The user types the scope, the hook writes it, then returns Green so the original tool call proceeds.
+## Model
 
 ```
-osascript -e '
-  display dialog "Set scope for this session"
-    default answer ""
-    with title "Remit"
-    buttons {"Cancel", "Set scope"}
-    default button "Set scope"
-'
+parent agent's PreToolUse(Agent)                      ──► hook stages scope under parent_id
+                                                          (PendingScopeStore::set)
+SubagentStart  / SessionStart   (parent_id, child_id) ──► hook claims under parent_id,
+                                                          assigns under child_id
+                                                          (PendingScopeStore::take + ScopeWriter::assign)
+child's PreToolUse(any tool)                          ──► classifier reads scope by child_id;
+                                                          present → Green; absent → Red
 ```
 
-- Cancel → Red `ScopeSetupCancelled`.
-- Empty input → treated as cancel.
-- `osascript` missing or fails → fail-closed Red `ScopeSetupUnavailable`.
+- Root flow unchanged from the spike: hook detects no scope on a parent-less Agent at first PreToolUse → `ScopePrompter::prompt` (osascript dialog) → `ScopeWriter::assign` → Green.
+- `resolve_scope` is **direct lookup**. No parent walk.
 
-The future custom UI replaces this adapter; the port stays.
+## Domain ports
 
-### 2. New port: `ScopePrompter`
+- `ScopeReader::scope_for(agent_id) → Option<Scope>` — direct read.
+- `ScopeWriter::assign(agent_id, scope)` — bind a Scope to an Agent.
+- `PendingScopeStore::set(parent_id, scope)` / `take(parent_id) → Option<Scope>` — single-slot per parent; `take` consumes.
+- `ScopePrompter::prompt(agent_id) → Scope` — root-only; `Cancelled` and `Unavailable` are distinct errors.
+- `ClassifierLogger::log_incoming(input)` — outbound observability.
 
-```rust
-// in domain
-#[derive(thiserror::Error, Debug)]
-#[non_exhaustive]
-pub enum PromptError {
-    #[error("prompt cancelled by user")]
-    Cancelled,
-    #[error("prompt unavailable")]
-    Unavailable(#[source] Box<dyn std::error::Error + Send + Sync>),
-}
+## Domain types
 
-pub trait ScopePrompter {
-    fn prompt(&self, session_id: &SessionId) -> Result<Scope, PromptError>;
-}
-```
+- `Agent { id: AgentId, parent_id: Option<AgentId> }`. Constructors: `Agent::root(id)`, `Agent::subagent(id, parent)`. Self-referential parent collapses to root.
+- `Scope` — non-empty after trim. Empty/whitespace bundled scope is rejected at the boundary, not staged.
+- `RedKind { NoScopeRoot, ScopeSetupCancelled, ScopeSetupUnavailable, SubagentMissingScope, StoreUnavailable }`. `Verdict::Red { kind, reason }`.
+- `ScopeStoreError::Unavailable(_)` — the only store-side error variant.
 
-Adapter-agnostic. `Cancelled` is distinct from `Unavailable` so the verdict reason and metrics can tell them apart.
+## Adapters
 
-### 3. New adapter crate: `osascript-prompter`
+- `FileScopeStore` — `~/.remit/scopes/<agent_id>.json`. Implements `ScopeReader` + `ScopeWriter`.
+- `FilePendingScopeStore` — `~/.remit/pending-scopes/<parent_id>.json`. Implements `PendingScopeStore`. `take` deletes after read (best-effort).
+- `OsascriptPrompter` — macOS dialog via `osascript`. Distinguishes user-cancel from missing-binary failure.
+- `FileLogger` — append-only NDJSON. Adds `log_line(&str)` for hook to record `hook-event`, `stage-pending`, `claim-pending`.
+- `claude-code-hook` — composition root. Dispatches by `hook_event_name`:
+  - `PreToolUse`: extract bundled scope from `Agent.prompt` (allowlist `BUNDLED_SCOPE_FIELDS`); identity-collapse the in-process subagent's `agent_id` into the `Agent.id`; classify; exit 2 on Red unless `dev_bypass`.
+  - `SubagentStart`: claim under payload `session_id`, assign to payload `agent_id`. Exit 2 + stderr if `assign` fails after `take`.
+  - `SessionStart`: claim under env `CLAUDE_SESSION_ID` (peer-process subagent), assign to payload `session_id`. Root sessions (no env var) skip — root prompts via PreToolUse.
 
-- `crates/osascript-prompter/`.
-- One impl: `OsascriptPrompter` implementing `ScopePrompter`.
-- Spawns `osascript`, parses stdout / exit status:
-  - `osascript` exits 1 with stderr `User canceled` → `PromptError::Cancelled`.
-  - Empty answer → `PromptError::Cancelled`.
-  - Spawn / IO failure → `PromptError::Unavailable`.
-  - Successful answer → `Scope::new(trim(answer))`.
+## Identity collapse
 
-No timeout for MVP. Risk: user walks away, Claude Code times the hook out. Acceptable until we own the UI.
+Hook adapter is responsible for translating Claude Code wire types into the domain `Agent`:
 
-### 4. New domain function: `acquire_scope`
+| Topology | `Agent.id` | `Agent.parent_id` |
+|---|---|---|
+| Top-level session | payload `session_id` | `None` (or env `CLAUDE_SESSION_ID` if present and distinct) |
+| In-process subagent (`agent_id` set) | payload `agent_id` | payload `session_id` |
+| Peer-process subagent | payload `session_id` | env `CLAUDE_SESSION_ID` |
 
-The acquisition flow is a separate domain function — **not** absorbed into `Classifier`. The hook composition root calls it before `classify`, so `Classifier` stays a pure query (state → verdict).
+The `Agent` constructors enforce the self-referential-parent collapse. The hook unit-tests `parent_from_env_value` to pin the env-var filter.
 
-```rust
-#[derive(thiserror::Error, Debug)]
-#[non_exhaustive]
-pub enum AcquireScopeError {
-    #[error("scope store: {0}")]
-    Store(#[from] ScopeError),
-    #[error("prompt: {0}")]
-    Prompt(#[from] PromptError),
-}
+## Fail-closed boundaries
 
-pub fn acquire_scope<R, P, W>(
-    reader: &R,
-    prompter: &P,
-    writer: &W,
-    session: &Session,
-) -> Result<Option<Scope>, AcquireScopeError>
-where
-    R: ScopeReader,
-    P: ScopePrompter,
-    W: ScopeWriter,
-```
+- Empty/whitespace bundled scope → not staged. Child hits `SubagentMissingScope` at first tool call.
+- Pending-store IO failure on `set` → exit 2 (parent's spawn call denied; no half-state).
+- `take` succeeds but `assign` fails → log + exit 2 + stderr (operator signal). Pending row already gone, child runs unscoped if the spawn proceeds; the explicit failure prevents silent drift.
+- Malformed agent ids in any payload → `fail_closed("…", AgentId::try_new(...))` → exit 2.
+- `Scope` validation failure on stored data → `ScopeStoreError::Unavailable` (corrupt row treated as fail-closed).
 
-Logic:
+## What's tested
 
-1. `resolve_scope(reader, session)?` → if `Some(s)`, return.
-2. Else, if `session.has_parent()`, return `Ok(None)` (subagent inheritance failed; can't prompt mid-subagent).
-3. Else (root session, missing scope), `prompter.prompt(&session.id)`:
-   - `Ok(scope)` → `writer.assign(&session.id, scope.clone())?`, return `Ok(Some(scope))`.
-   - `Err(PromptError::Cancelled)` → `Ok(None)`.
-   - `Err(PromptError::Unavailable(_))` → propagate as `AcquireScopeError::Prompt(...)`.
+- Domain: `Agent::root`/`subagent` constructors and self-collapse; `resolve_scope` direct lookup (no parent walk); `acquire_scope` six paths; `Classifier` Verdict+RedKind matrix; `Scope` non-empty validation; `PendingScopeStore` contract (`set`/`take`/single-shot/independence/sequential cycles/overwrite-without-take/persistence).
+- File adapters: `ScopeReader`+`ScopeWriter` contract via `domain::test_support::scope_store_contract`; `PendingScopeStore` contract via `pending_scope_store_contract`; corrupt scope file → `Unavailable`.
+- Hook: `bundled_scope_from` allowlist behaviour (Agent only, missing/empty/whitespace/non-string field rejected); `BUNDLED_SCOPE_FIELDS` snapshot pinned; `parent_from_env_value` filters self-equality and invalid ids.
+- Live: 10-parallel in-process subagent spawn (10/10 hits, no overwrites). 10-parallel team-spawn (9/10 hits, 1 overwrite — see "Known limits" below).
 
-Lives in `domain` so other hosts (Cursor, Codex) reuse it verbatim.
+## Known limits
 
-### 5. Shared parent predicate
+- **Parallel team spawns**: peer-process spawn lifecycle is async — `SessionStart` fires after the parent has issued the next `Agent`. Single-slot `PendingScopeStore` collides under that load. Tracked in [#20](https://github.com/remit-sh/remit/issues/20). FIFO queue is the planned fix.
+- **Stale pending files**: parent stages, child never starts → row persists indefinitely. Acceptable for MVP; cleanup tied to the #20 work.
+- **Upstream correlation**: `SubagentStart`/`SessionStart` payloads don't expose the spawning `tool_use_id`. Reliable disambiguation under parallel spawns needs that field upstream.
 
-Extract `Session::has_parent()` to keep `resolve_scope` and `acquire_scope` consistent on the self-referential-parent rule:
+## Vocabulary
 
-```rust
-impl Session {
-    pub fn has_parent(&self) -> bool {
-        self.parent_id.as_ref().is_some_and(|p| p != &self.id)
-    }
-}
-```
-
-`resolve_scope` switches to `session.has_parent()`; existing `ignores_self_referential_parent` test still passes.
-
-### 6. Verdict gains a typed `RedKind`
-
-Bare `String` reasons drift; the taxonomy belongs in one place.
-
-```rust
-pub enum Verdict {
-    Green,
-    Red { kind: RedKind, reason: String },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum RedKind {
-    NoScopeRoot,                  // root session, no scope, no prompt attempted
-    ScopeSetupCancelled,          // user dismissed the prompt
-    ScopeSetupUnavailable,        // prompter failed (osascript missing, IO error)
-    SubagentParentMissingScope,   // subagent's parent walk found nothing
-    StoreUnavailable,             // ScopeError from reader/writer
-}
-```
-
-`reason` keeps the human-readable text; `kind` enables structured logging and the per-host UX.
-
-### 7. Classifier — stays reader-only
-
-`Classifier::classify` keeps its current shape and dependency set (`L: ClassifierLogger`, `R: ScopeReader`). No new generics, no acquisition logic. It maps presence → Green and absence/error → Red with the right `RedKind`:
-
-- `Ok(Some(_))` → Green.
-- `Ok(None)` with parent → `SubagentParentMissingScope`.
-- `Ok(None)` without parent → `NoScopeRoot` (in practice, the hook acquires before classifying, so this is the "user just cancelled" path; the hook overrides the kind to `ScopeSetupCancelled` based on the acquisition outcome — see §8).
-- `Err(_)` → `StoreUnavailable`.
-
-### 8. Composition root (`claude-code-hook`)
-
-```text
-let outcome = acquire_scope(&store, &prompter, &store, &session)?;
-let verdict = classifier.classify(&input);
-let verdict = match (outcome, verdict) {
-    (None, Verdict::Red { kind: NoScopeRoot, .. }) =>
-        Verdict::Red { kind: ScopeSetupCancelled, reason: "scope setup cancelled".into() },
-    (_, v) => v,
-};
-```
-
-`AcquireScopeError::Prompt(Unavailable)` and `AcquireScopeError::Store(_)` are handled by the hook by emitting Red with `ScopeSetupUnavailable` / `StoreUnavailable` respectively, mirroring the existing fail-closed pattern.
-
-### 9. Scope dir → `~/.remit/scopes/`
-
-- Add `scope_dir() -> Result<PathBuf, ConfigError>` to `remit-config`. Default `~/.remit/scopes/`.
-- Hook resolves it at startup. Adapter-side concern; doesn't affect the port.
-- No file-config override yet.
-
-## Touch list
-
-- `crates/domain/src/lib.rs` — `ScopePrompter`, `PromptError`, `AcquireScopeError`, `acquire_scope`, `Session::has_parent`, `RedKind`, updated `Verdict`. `Classifier` only changes its Red-emission path to attach `RedKind`.
-- `crates/domain/tests/acquire_scope.rs` — six paths from §4.
-- `crates/domain/tests/classifier.rs` — assert `RedKind` on existing scenarios; existing assertions adapted.
-- `crates/domain/tests/resolve_scope.rs` — switch to `has_parent` (no behavioural change).
-- `crates/domain/tests/common/mod.rs` — `FakePrompter` (configurable scope, error, call count); `RecordingWriter`.
-- `crates/osascript-prompter/Cargo.toml` — new adapter crate.
-- `crates/osascript-prompter/src/lib.rs` — `OsascriptPrompter` impl. Inject the command builder so unit tests stub `osascript`.
-- `crates/osascript-prompter/tests/integration.rs` — opt-in macOS test (`#[ignore]`) that pops a real dialog.
-- `crates/remit-config/src/lib.rs` — `scope_dir()`.
-- `crates/remit-config/src/tests.rs` — `HOME` set / `HOME` missing.
-- `crates/claude-code-hook/src/main.rs` — wire `OsascriptPrompter`, `FileScopeStore` (reader + writer); call `acquire_scope` then `classify`; map `RedKind` and `AcquireScopeError` to exit code + stderr. Replace hardcoded scope path with `remit_config::scope_dir()`.
-- `crates/claude-code-hook/Cargo.toml` — add `osascript-prompter` dep.
-- `Cargo.toml` (workspace) — add `osascript-prompter` member.
-- Issue #17 — pointer comment + test strategy.
-
-`remit.log` paths and the `dev_bypass` flow are untouched.
-
-## Test strategy (TDD)
-
-Failing test first, then implement. Order:
-
-1. **`remit-config`** — `scope_dir_under_home`, `scope_dir_errors_when_home_missing`.
-2. **Domain — `Session::has_parent`** — true for distinct parent, false for none, false for self-referential.
-3. **Domain — `acquire_scope`**:
-   - Returns existing scope without prompting or writing.
-   - Returns parent's scope without prompting or writing (subagent path).
-   - Subagent with no parent scope → `Ok(None)`, prompter and writer not called.
-   - Root, missing scope → calls prompter, writes via writer, returns the new scope.
-   - Cancelled prompt → `Ok(None)`, writer not called.
-   - Unavailable prompt → `Err(AcquireScopeError::Prompt(_))`, writer not called.
-   - Store error → `Err(AcquireScopeError::Store(_))`.
-4. **Domain — `Classifier`** — each branch attaches the correct `RedKind`. Existing Green case still passes.
-5. **`osascript-prompter`** — unit tests over the parser (success line, "User canceled" stderr, IO failure). Integration `#[ignore]` test gated on macOS pops a real dialog.
-6. **End-to-end smoke** (manual, recorded in commit): fresh session → first tool call shows dialog → typed scope persists → next call Green → Cancel returns Red with the cancelled-kind text.
-
-Coverage target per CLAUDE.md: every public function and trait impl unit-tested; every port covered by an adapter integration test.
+Per [`docs/UBIQUITOUS_LANGUAGE.md`](../UBIQUITOUS_LANGUAGE.md). `Agent` is the domain umbrella; `Session` is Claude-Code-specific runtime jargon, used only when discussing CC internals (the `session_id` field, env var, etc.). The previous `Session`/`SessionId`/`SubagentId` domain types are gone.
 
 ## Out of scope (per #17)
 
-- LLM classifier; `remit.md`; templates.
+- LLM classifier; `remit.md` policy; role templates; multi-runtime adapters.
 - SQLite logging.
-- `SessionStart` interactive prompt.
-- Custom Remit UI (osascript stand-in until then).
-- Non-macOS platforms. Cross-platform prompter ships when there's a host that demands it.
-- Config-file override for `scope_dir`.
-- Hook-timeout protection for slow user input.
-- Concurrent-prompt race (two parallel root sessions both with no scope).
-- `Scope` length / content validation.
-
-## Open questions
-
-None blocking. The two notes from architect review (concurrent prompts, `Scope` validation) are recorded as future issues.
-
-## Promotion criteria
-
-- All acceptance criteria in #17 pass with automated tests.
-- End-to-end smoke recorded in the commit message.
+- Cross-platform prompter (osascript stand-in until a non-macOS host demands it).
+- Config-file override for the scope/pending dirs.
+- Hook-timeout protection for slow user input on the prompter.
+- FIFO pending queue (#20).

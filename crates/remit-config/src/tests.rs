@@ -74,7 +74,7 @@ fn errors_on_directory_path() {
 
 #[test]
 fn scope_dir_under_home() {
-    let got = scope_dir_from_home(Some("/tmp/fake-home".into())).unwrap();
+    let got = subdir_from_home("scopes", Some("/tmp/fake-home".into())).unwrap();
     assert_eq!(
         got,
         std::path::PathBuf::from("/tmp/fake-home/.remit/scopes")
@@ -82,9 +82,18 @@ fn scope_dir_under_home() {
 }
 
 #[test]
-fn scope_dir_errors_when_home_missing() {
+fn pending_scope_dir_under_home() {
+    let got = subdir_from_home("pending-scopes", Some("/tmp/fake-home".into())).unwrap();
+    assert_eq!(
+        got,
+        std::path::PathBuf::from("/tmp/fake-home/.remit/pending-scopes")
+    );
+}
+
+#[test]
+fn subdir_errors_when_home_missing() {
     assert!(matches!(
-        scope_dir_from_home(None),
+        subdir_from_home("scopes", None),
         Err(ConfigError::HomeNotSet)
     ));
 }

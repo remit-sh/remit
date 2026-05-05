@@ -5,15 +5,17 @@
 | Term | Definition | Aliases to avoid |
 | --- | --- | --- |
 | **Remit** | The product name. | — |
-| **Scope** | The agent's task — what it's trying to accomplish (e.g. "develop the front-end history component"). Not an allowlist. | Remit, intent, permissions |
+| **Scope** | The agent's task — what it's trying to accomplish (e.g. "develop the front-end history component"). Not an allowlist. | Remit, task, intent, permissions |
 | **Semantic firewall** | Relevance check between **Scope** and **Action**. | Guardrail, policy engine |
 
-## Sessions
+## Agents
 
 | Term | Definition | Aliases to avoid |
 | --- | --- | --- |
-| **Session** | One run of an agent against one **Scope**. May be top-level or a **Subagent**. | Conversation, run |
-| **Subagent** | A child agent acting under a parent's **Scope**. Runtime-agnostic — some runtimes realise subagents in-process, some as peer **Sessions**; the domain treats them uniformly. | Spawn, team member, child session |
+| **Agent** | Domain umbrella for any scope-bearing runtime instance — top-level or **Subagent**, in-process or peer process. Cross-runtime: a Claude Code session, a Claude Code in-process subagent, a Cursor agent, a Codex task, etc., are all **Agents**. | Session (runtime-specific), worker, instance |
+| **Subagent** | A child **Agent** with its own **Scope**, set by the parent at spawn time (extracted from the spawn-tool payload). Runtime-agnostic. | Spawn, team member, child session |
+| **Session** | A Claude-Code-specific runtime term: one forked `claude` process. Use only when discussing Claude Code internals. The domain term is **Agent**. | — |
+| **Bundled scope** | The **Scope** carried in a parent's spawn-tool payload (e.g. `Agent.prompt`) that the hook lifts as the child's scope at spawn time. | Inherited scope (no longer used) |
 
 ## Classification
 
@@ -21,7 +23,7 @@
 | --- | --- | --- |
 | **Action** | A tool call to be classified. | Tool call, command |
 | **Classifier** | Turns a **Classification input** into a **Verdict**. | Engine, judge |
-| **Classification input** | **Session** + **Action** + working dir. | Request |
+| **Classification input** | **Agent** + **Action** + working dir. | Request |
 | **Verdict** | **Green** \| **Red**. | Decision, ruling |
 | **Green** / **Red** | Action serves / does not serve the **Scope**. | Pass / Deny |
 | **Reason** | Justification on a Red **Verdict**. | Explanation |
@@ -36,8 +38,8 @@
 
 ## Relationships
 
-- A **Session** has exactly one **Scope**.
-- A **Subagent** runs under a parent agent and inherits the parent's **Scope**.
+- An **Agent** has exactly one **Scope**.
+- A **Subagent** has its own **Scope**, set by the parent at spawn time. No inheritance.
 - The **Classifier** maps one **Classification input** to one **Verdict**.
 - Only Red **Verdicts** carry a **Reason**.
 

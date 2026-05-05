@@ -38,13 +38,19 @@ pub fn load() -> Result<RemitConfig, ConfigError> {
     load_from(&path)
 }
 
-/// Directory where session scopes are persisted: `~/.remit/scopes/`.
+/// Directory where bound agent scopes are persisted: `~/.remit/scopes/`.
 pub fn scope_dir() -> Result<PathBuf, ConfigError> {
-    scope_dir_from_home(std::env::var("HOME").ok())
+    subdir_from_home("scopes", std::env::var("HOME").ok())
 }
 
-fn scope_dir_from_home(home: Option<String>) -> Result<PathBuf, ConfigError> {
-    home.map(|h| PathBuf::from(h).join(".remit").join("scopes"))
+/// Directory where parent-keyed pending scopes (staged for the next-spawned
+/// child) are persisted: `~/.remit/pending-scopes/`.
+pub fn pending_scope_dir() -> Result<PathBuf, ConfigError> {
+    subdir_from_home("pending-scopes", std::env::var("HOME").ok())
+}
+
+fn subdir_from_home(name: &str, home: Option<String>) -> Result<PathBuf, ConfigError> {
+    home.map(|h| PathBuf::from(h).join(".remit").join(name))
         .ok_or(ConfigError::HomeNotSet)
 }
 

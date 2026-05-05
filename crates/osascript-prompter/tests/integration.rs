@@ -6,15 +6,15 @@
 
 #![cfg(target_os = "macos")]
 
-use domain::{ScopePrompter, SessionId};
+use domain::{AgentId, ScopePrompter};
 use osascript_prompter::OsascriptPrompter;
 
 #[test]
 #[ignore = "interactive: pops a real osascript dialog"]
 fn live_dialog_returns_typed_scope() {
     let prompter = OsascriptPrompter::new();
-    let session_id = SessionId::try_new("integration-test").unwrap();
-    let scope = prompter.prompt(&session_id).expect("dialog should succeed");
+    let agent_id = AgentId::try_new("integration-test").unwrap();
+    let scope = prompter.prompt(&agent_id).expect("dialog should succeed");
     println!("captured scope: {}", scope.as_ref());
     assert!(!scope.as_ref().is_empty());
 }
