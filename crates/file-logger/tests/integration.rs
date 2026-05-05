@@ -24,7 +24,7 @@ fn input() -> ClassificationInput {
 fn log_incoming_writes_one_line() {
     let dir = tempdir().unwrap();
     let log = dir.path().join("remit.log");
-    let logger = FileLogger::new(log.clone());
+    let logger = FileLogger::new(log.clone(), Vec::new());
 
     logger.log_incoming(&input());
 
@@ -40,7 +40,7 @@ fn log_incoming_writes_one_line() {
 fn log_outcome_green() {
     let dir = tempdir().unwrap();
     let log = dir.path().join("remit.log");
-    let logger = FileLogger::new(log.clone());
+    let logger = FileLogger::new(log.clone(), Vec::new());
 
     logger.log_outcome(&input(), &Verdict::Green);
 
@@ -52,7 +52,7 @@ fn log_outcome_green() {
 fn log_outcome_red_includes_kind_and_reason() {
     let dir = tempdir().unwrap();
     let log = dir.path().join("remit.log");
-    let logger = FileLogger::new(log.clone());
+    let logger = FileLogger::new(log.clone(), Vec::new());
 
     logger.log_outcome(
         &input(),
@@ -97,7 +97,7 @@ fn log_error_walks_source_chain() {
 
     let dir = tempdir().unwrap();
     let log = dir.path().join("remit.log");
-    let logger = FileLogger::new(log.clone());
+    let logger = FileLogger::new(log.clone(), Vec::new());
 
     let err = Outer(Inner("disk full"));
     logger.log_error(&input(), &err);
@@ -113,7 +113,7 @@ fn log_error_walks_source_chain() {
 fn appends_across_multiple_calls() {
     let dir = tempdir().unwrap();
     let log = dir.path().join("remit.log");
-    let logger = FileLogger::new(log.clone());
+    let logger = FileLogger::new(log.clone(), Vec::new());
 
     logger.log_incoming(&input());
     logger.log_outcome(&input(), &Verdict::Green);
