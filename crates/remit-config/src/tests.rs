@@ -66,6 +66,124 @@ fn rejects_unknown_fields() {
 }
 
 #[test]
+fn parses_anthropic_classifier_section() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    fs::write(
+        &path,
+        "[classifier]\nadapter = \"anthropic\"\n[classifier.anthropic]\nmodel = \"claude-haiku-4-5\"\napi_key = \"sk-ant-test\"\n",
+    )
+    .unwrap();
+    let cfg = load_from(&path).unwrap();
+    assert_eq!(cfg.classifier.adapter, ClassifierAdapter::Anthropic);
+    assert_eq!(
+        cfg.classifier.anthropic.model.as_deref(),
+        Some("claude-haiku-4-5")
+    );
+    assert_eq!(
+        cfg.classifier.anthropic.api_key.as_deref(),
+        Some("sk-ant-test")
+    );
+}
+
+#[test]
+fn classifier_adapter_defaults_to_anthropic() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    fs::write(&path, "[classifier.anthropic]\napi_key = \"sk-ant-test\"\n").unwrap();
+    let cfg = load_from(&path).unwrap();
+    assert_eq!(cfg.classifier.adapter, ClassifierAdapter::Anthropic);
+}
+
+#[test]
+fn classifier_section_optional_fields_default_to_none() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    fs::write(&path, "[classifier.anthropic]\n").unwrap();
+    let cfg = load_from(&path).unwrap();
+    assert!(cfg.classifier.anthropic.model.is_none());
+    assert!(cfg.classifier.anthropic.api_key.is_none());
+}
+
+#[test]
+fn classifier_section_omitted_means_default() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    fs::write(&path, "dev_bypass = true").unwrap();
+    let cfg = load_from(&path).unwrap();
+    assert_eq!(cfg.classifier, ClassifierConfig::default());
+}
+
+#[test]
+fn rejects_unknown_classifier_field() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    fs::write(&path, "[classifier]\nmysterious = \"x\"\n").unwrap();
+    assert!(matches!(load_from(&path), Err(ConfigError::Parse(_))));
+}
+
+#[test]
+fn rejects_unknown_anthropic_field() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    fs::write(&path, "[classifier.anthropic]\nmodle = \"x\"\n").unwrap();
+    assert!(matches!(load_from(&path), Err(ConfigError::Parse(_))));
+}
+
+#[test]
+fn parse_error_does_not_echo_secret_values() {
+    // Regression: `toml::de::Error::Display` includes a snippet of the offending
+    // line, which would echo `api_key = "sk-..."` to stderr on a schema mismatch.
+    // We strip the snippet down to the structural message before emitting.
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    let secret = "sk-ant-secret-must-not-leak-XYZ123";
+    fs::write(&path, format!("[classifier]\napi_key = \"{secret}\"\n")).unwrap();
+    let err = load_from(&path).unwrap_err();
+    let displayed = format!("{err}");
+    assert!(
+        !displayed.contains(secret),
+        "parse error must not echo secret values; got: {displayed}"
+    );
+    // The structural reason should still be present.
+    assert!(
+        displayed.contains("api_key") || displayed.contains("unknown field"),
+        "parse error should still describe the structural problem; got: {displayed}"
+    );
+}
+
+#[test]
+fn rejects_unknown_adapter_value() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    fs::write(&path, "[classifier]\nadapter = \"unknown-adapter\"\n").unwrap();
+    assert!(matches!(load_from(&path), Err(ConfigError::Parse(_))));
+}
+
+#[test]
+fn debug_redacts_anthropic_api_key() {
+    let cfg = AnthropicConfig {
+        model: Some("claude-haiku-4-5".into()),
+        api_key: Some("sk-ant-secret-do-not-print".into()),
+    };
+    let debug = format!("{cfg:?}");
+    assert!(!debug.contains("sk-ant-secret-do-not-print"));
+    assert!(debug.contains("<redacted>"));
+    assert!(debug.contains("claude-haiku-4-5"));
+}
+
+#[test]
+fn debug_shows_none_for_missing_anthropic_api_key() {
+    let cfg = AnthropicConfig {
+        model: None,
+        api_key: None,
+    };
+    let debug = format!("{cfg:?}");
+    assert!(debug.contains("None"));
+    assert!(!debug.contains("<redacted>"));
+}
+
+#[test]
 fn errors_on_directory_path() {
     let dir = tempdir().unwrap();
     let result = load_from(dir.path());
@@ -113,6 +231,9 @@ fn audit_markers_empty_by_default() {
 
 #[test]
 fn audit_markers_includes_dev_bypass_when_set() {
-    let cfg = RemitConfig { dev_bypass: true };
+    let cfg = RemitConfig {
+        dev_bypass: true,
+        ..Default::default()
+    };
     assert_eq!(cfg.audit_markers(), vec!["[dev-bypass-active]".to_string()]);
 }

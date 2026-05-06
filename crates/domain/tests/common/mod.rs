@@ -7,8 +7,9 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use domain::{
-    AgentId, ClassificationInput, ClassifierLogger, PromptError, RedKind, Scope, ScopePrompter,
-    ScopeReader, ScopeStoreError, ScopeWriter, Verdict,
+    Action, AgentId, ClassificationInput, ClassifierLogger, LlmClassifier, LlmClassifierError,
+    LlmDecision, PromptError, RedKind, Scope, ScopePrompter, ScopeReader, ScopeStoreError,
+    ScopeWriter, Verdict,
 };
 
 pub struct FakeReader {
@@ -199,5 +200,60 @@ impl ScopeWriter for RecordingWriter {
         }
         self.writes.borrow_mut().push((agent_id.clone(), scope));
         Ok(())
+    }
+}
+
+pub enum LlmOutcome {
+    Green,
+    Red(String),
+    Unavailable,
+}
+
+pub struct FakeLlmClassifier {
+    outcome: LlmOutcome,
+    calls: Rc<RefCell<usize>>,
+}
+
+impl FakeLlmClassifier {
+    pub fn green() -> Self {
+        Self::new(LlmOutcome::Green)
+    }
+
+    pub fn red(reason: &str) -> Self {
+        Self::new(LlmOutcome::Red(reason.into()))
+    }
+
+    pub fn unavailable() -> Self {
+        Self::new(LlmOutcome::Unavailable)
+    }
+
+    fn new(outcome: LlmOutcome) -> Self {
+        Self {
+            outcome,
+            calls: Rc::new(RefCell::new(0)),
+        }
+    }
+
+    pub fn call_count(&self) -> Rc<RefCell<usize>> {
+        Rc::clone(&self.calls)
+    }
+}
+
+impl LlmClassifier for FakeLlmClassifier {
+    fn classify(
+        &self,
+        _action: &Action,
+        _scope: &Scope,
+    ) -> Result<LlmDecision, LlmClassifierError> {
+        *self.calls.borrow_mut() += 1;
+        match &self.outcome {
+            LlmOutcome::Green => Ok(LlmDecision::Green),
+            LlmOutcome::Red(reason) => Ok(LlmDecision::Red {
+                reason: reason.clone(),
+            }),
+            LlmOutcome::Unavailable => {
+                Err(LlmClassifierError::Unavailable("fake LLM failure".into()))
+            }
+        }
     }
 }

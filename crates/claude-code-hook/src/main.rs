@@ -2,6 +2,7 @@ use std::fmt::Display;
 use std::io::Read;
 use std::path::PathBuf;
 
+use anthropic_classifier::AnthropicClassifier;
 use domain::{
     Action, ActionArgs, ActionKind, Agent, AgentId, CallId, ClassificationInput, Classifier,
     PendingScopeStore, Scope, Verdict, process_action,
@@ -70,7 +71,8 @@ fn main() {
         "PreToolUse" => {
             let payload: PreToolUsePayload =
                 fail_closed("parse PreToolUse", serde_json::from_value(raw_payload));
-            handle_pre_tool_use(payload, &cfg, &scope_store, &pending_store, &logger);
+            let llm = build_llm_classifier(&cfg);
+            handle_pre_tool_use(payload, &cfg, &scope_store, &pending_store, &logger, llm);
         }
         "SubagentStart" => {
             if let Ok(payload) = serde_json::from_value::<SubagentStartPayload>(raw_payload) {
@@ -113,12 +115,14 @@ fn main() {
     }
 }
 
+#[allow(clippy::too_many_arguments)] // glue function in the composition root
 fn handle_pre_tool_use(
     payload: PreToolUsePayload,
     cfg: &remit_config::RemitConfig,
     scope_store: &FileScopeStore,
     pending_store: &FilePendingScopeStore,
     logger: &FileLogger,
+    llm: AnthropicClassifier,
 ) {
     let payload_session = fail_closed(
         "PreToolUse session id",
@@ -158,7 +162,7 @@ fn handle_pre_tool_use(
     };
 
     let prompter = OsascriptPrompter::new();
-    let classifier = Classifier::new();
+    let classifier = Classifier::new(llm);
     let verdict = process_action(
         &classifier_input,
         scope_store,
@@ -284,4 +288,20 @@ fn fail_closed<T, E: Display>(ctx: &str, result: Result<T, E>) -> T {
         eprintln!("remit: {ctx}: {e}; deny");
         std::process::exit(2);
     })
+}
+
+/// Dispatch on the configured classifier adapter and build it. Adapter-specific
+/// resolution (defaults, env-var fallbacks) lives inside each adapter.
+/// Missing config that prevents construction denies the action — we never
+/// classify without a working classifier.
+fn build_llm_classifier(cfg: &remit_config::RemitConfig) -> AnthropicClassifier {
+    match cfg.classifier.adapter {
+        remit_config::ClassifierAdapter::Anthropic => fail_closed(
+            "classifier",
+            AnthropicClassifier::from_config(
+                cfg.classifier.anthropic.api_key.clone(),
+                cfg.classifier.anthropic.model.clone(),
+            ),
+        ),
+    }
 }

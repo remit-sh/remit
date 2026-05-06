@@ -94,5 +94,7 @@ fn red_kind_label(kind: &RedKind) -> &'static str {
         RedKind::ScopeSetupUnavailable => "ScopeSetupUnavailable",
         RedKind::SubagentMissingScope => "SubagentMissingScope",
         RedKind::StoreUnavailable => "StoreUnavailable",
+        RedKind::OutOfScope => "OutOfScope",
+        RedKind::ClassifierUnavailable => "ClassifierUnavailable",
     }
 }

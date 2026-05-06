@@ -6,6 +6,7 @@ members = [
     "crates/file-logger",
     "crates/file-scope-store",
     "crates/osascript-prompter",
+    "crates/anthropic-classifier",
     "crates/claude-code-hook",
 ]
 

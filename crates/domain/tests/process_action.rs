@@ -6,7 +6,9 @@ use domain::{
 };
 
 mod common;
-use common::{FakePrompter, FakeReader, LoggedVerdict, RecordingLogger, RecordingWriter};
+use common::{
+    FakeLlmClassifier, FakePrompter, FakeReader, LoggedVerdict, RecordingLogger, RecordingWriter,
+};
 
 fn id(s: &str) -> AgentId {
     AgentId::try_new(s).unwrap()
@@ -29,11 +31,11 @@ fn input(agent: Agent) -> ClassificationInput {
 }
 
 #[test]
-fn green_when_existing_scope_present() {
+fn green_when_existing_scope_present_and_llm_green() {
     let reader = FakeReader::new().with(id("sess"), scope("do the thing"));
     let prompter = FakePrompter::returning(scope("nope"));
     let writer = RecordingWriter::new();
-    let classifier = Classifier::new();
+    let classifier = Classifier::new(FakeLlmClassifier::green());
     let logger = RecordingLogger::new();
     let v = process_action(
         &input(Agent::root(id("sess"))),
@@ -47,12 +49,52 @@ fn green_when_existing_scope_present() {
 }
 
 #[test]
-fn green_after_successful_prompt_and_persist() {
+fn red_out_of_scope_when_existing_scope_and_llm_red() {
+    let reader = FakeReader::new().with(id("sess"), scope("do the thing"));
+    let prompter = FakePrompter::returning(scope("nope"));
+    let writer = RecordingWriter::new();
+    let classifier = Classifier::new(FakeLlmClassifier::red("unrelated to scope"));
+    let logger = RecordingLogger::new();
+    let Verdict::Red { kind, .. } = process_action(
+        &input(Agent::root(id("sess"))),
+        &reader,
+        &prompter,
+        &writer,
+        &classifier,
+        &logger,
+    ) else {
+        panic!("expected Red");
+    };
+    assert_eq!(kind, RedKind::OutOfScope);
+}
+
+#[test]
+fn red_classifier_unavailable_when_existing_scope_and_llm_fails() {
+    let reader = FakeReader::new().with(id("sess"), scope("do the thing"));
+    let prompter = FakePrompter::returning(scope("nope"));
+    let writer = RecordingWriter::new();
+    let classifier = Classifier::new(FakeLlmClassifier::unavailable());
+    let logger = RecordingLogger::new();
+    let Verdict::Red { kind, .. } = process_action(
+        &input(Agent::root(id("sess"))),
+        &reader,
+        &prompter,
+        &writer,
+        &classifier,
+        &logger,
+    ) else {
+        panic!("expected Red");
+    };
+    assert_eq!(kind, RedKind::ClassifierUnavailable);
+}
+
+#[test]
+fn green_after_successful_prompt_persist_and_llm_green() {
     let reader = FakeReader::new();
     let prompter = FakePrompter::returning(scope("freshly typed"));
     let writer = RecordingWriter::new();
     let writes = writer.writes();
-    let classifier = Classifier::new();
+    let classifier = Classifier::new(FakeLlmClassifier::green());
     let logger = RecordingLogger::new();
     let v = process_action(
         &input(Agent::root(id("root"))),
@@ -71,7 +113,7 @@ fn red_scope_setup_cancelled_when_prompt_cancelled() {
     let reader = FakeReader::new();
     let prompter = FakePrompter::cancelled();
     let writer = RecordingWriter::new();
-    let classifier = Classifier::new();
+    let classifier = Classifier::new(FakeLlmClassifier::green());
     let logger = RecordingLogger::new();
     let Verdict::Red { kind, .. } = process_action(
         &input(Agent::root(id("root"))),
@@ -91,7 +133,7 @@ fn red_scope_setup_unavailable_when_prompt_fails() {
     let reader = FakeReader::new();
     let prompter = FakePrompter::unavailable();
     let writer = RecordingWriter::new();
-    let classifier = Classifier::new();
+    let classifier = Classifier::new(FakeLlmClassifier::green());
     let logger = RecordingLogger::new();
     let Verdict::Red { kind, .. } = process_action(
         &input(Agent::root(id("root"))),
@@ -111,7 +153,7 @@ fn red_store_unavailable_when_reader_fails() {
     let reader = FakeReader::failing();
     let prompter = FakePrompter::returning(scope("nope"));
     let writer = RecordingWriter::new();
-    let classifier = Classifier::new();
+    let classifier = Classifier::new(FakeLlmClassifier::green());
     let logger = RecordingLogger::new();
     let Verdict::Red { kind, .. } = process_action(
         &input(Agent::root(id("root"))),
@@ -132,7 +174,9 @@ fn red_subagent_missing_scope_when_subagent_has_no_bound_scope() {
     let prompter = FakePrompter::returning(scope("never used"));
     let prompt_calls = prompter.call_count();
     let writer = RecordingWriter::new();
-    let classifier = Classifier::new();
+    let llm = FakeLlmClassifier::green();
+    let llm_calls = llm.call_count();
+    let classifier = Classifier::new(llm);
     let logger = RecordingLogger::new();
     let Verdict::Red { kind, .. } = process_action(
         &input(Agent::subagent(id("child"), id("parent"))),
@@ -146,6 +190,7 @@ fn red_subagent_missing_scope_when_subagent_has_no_bound_scope() {
     };
     assert_eq!(kind, RedKind::SubagentMissingScope);
     assert_eq!(*prompt_calls.borrow(), 0);
+    assert_eq!(*llm_calls.borrow(), 0);
 }
 
 #[test]
@@ -153,7 +198,7 @@ fn logs_incoming_and_outcome_on_green() {
     let reader = FakeReader::new().with(id("sess"), scope("do the thing"));
     let prompter = FakePrompter::returning(scope("nope"));
     let writer = RecordingWriter::new();
-    let classifier = Classifier::new();
+    let classifier = Classifier::new(FakeLlmClassifier::green());
     let logger = RecordingLogger::new();
     let incoming = logger.call_count();
     let outcomes = logger.outcomes();
@@ -176,7 +221,7 @@ fn logs_final_verdict_after_no_scope_root_transformation() {
     let reader = FakeReader::new();
     let prompter = FakePrompter::cancelled();
     let writer = RecordingWriter::new();
-    let classifier = Classifier::new();
+    let classifier = Classifier::new(FakeLlmClassifier::green());
     let logger = RecordingLogger::new();
     let outcomes = logger.outcomes();
     process_action(
@@ -199,7 +244,7 @@ fn logs_error_and_outcome_on_store_failure() {
     let reader = FakeReader::failing();
     let prompter = FakePrompter::returning(scope("nope"));
     let writer = RecordingWriter::new();
-    let classifier = Classifier::new();
+    let classifier = Classifier::new(FakeLlmClassifier::green());
     let logger = RecordingLogger::new();
     let incoming = logger.call_count();
     let outcomes = logger.outcomes();
@@ -234,7 +279,7 @@ fn logs_error_and_outcome_on_prompt_failure() {
     let reader = FakeReader::new();
     let prompter = FakePrompter::unavailable();
     let writer = RecordingWriter::new();
-    let classifier = Classifier::new();
+    let classifier = Classifier::new(FakeLlmClassifier::green());
     let logger = RecordingLogger::new();
     let outcomes = logger.outcomes();
     let errors = logger.errors();
@@ -263,7 +308,7 @@ fn does_not_log_error_on_green() {
     let reader = FakeReader::new().with(id("sess"), scope("do the thing"));
     let prompter = FakePrompter::returning(scope("nope"));
     let writer = RecordingWriter::new();
-    let classifier = Classifier::new();
+    let classifier = Classifier::new(FakeLlmClassifier::green());
     let logger = RecordingLogger::new();
     let errors = logger.errors();
     process_action(
