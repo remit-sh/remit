@@ -129,7 +129,8 @@ Tests live in separate files, never appended to source modules. Unit tests for p
 # Workflow
 
 - Trunk-based; commits land directly on `main`.
-- Pre-push hook (`scripts/pre-push`) runs fmt-check, clippy `-D warnings`, and `cargo test --workspace`. Final gate.
+- **Human-approval gate before push.** Every change — even trivial ones — runs through `do-review`, gets committed, has its issue flipped to **In Review**, and waits for the human's explicit go-ahead. Coordinators / team leads never approve pushes on the human's behalf.
+- Pre-push hook (`scripts/pre-push`) runs fmt-check, clippy `-D warnings`, and `cargo test --workspace`. Final automated gate, runs after human approval.
 - Never bypass with `--no-verify`; fix the underlying issue.
 - Issues live on the `remit-sh/Remit` GitHub Project (#9). Reference with `Refs #N` (or `Closes #N` to auto-close).
 

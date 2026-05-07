@@ -176,9 +176,19 @@ Agent:
 
 ## Stage 4 — Monitor
 
-**Push approval requests:** agents request approval before pushing (`do-ship` Stage 2 gate). Review the incoming review summary + commit list and reply with explicit approval or change requests via `SendMessage`. Agents will not push until approved. Do not rubber-stamp — a pushed commit on main is effectively deployed.
+**Review queue:** agents reach `do-ship` Stage 3 with the work committed and the issue at status **In Review**, then send a "ready for human review" message via `SendMessage`. The coordinator collects these into a review queue.
 
-**Push conflict:** agent rebases and retries — up to 3 times on a busy trunk. Still failing after 3 → pause, escalate to user.
+The coordinator is a **router, not an approver**. It does not approve pushes — only the human does. Concretely:
+
+- When an agent reports "ready", append it to the queue and acknowledge.
+- When the human asks "what's ready?" / "show me the queue" / `/do-status`, surface the queue: list of `#N — <title> — worktree path — branch`.
+- The human reviews each diff out of band (opens the worktree in their editor, reads the issue comment, optionally spawns a fresh session in the worktree to talk to the agent).
+- When the human says `approve #N`, `push #N`, `ship #N`, `go #N`, or `👍 #N`, forward that approval to the named agent (`dev-<N>`) via `SendMessage`. The agent runs the push.
+- When the human says "needs changes" / describes follow-up work, forward the feedback to the agent. The agent re-enters develop → review → ship.
+
+Never approve unilaterally. Never assume silence is approval. If the human is offline and an agent reports "ready", the queue holds — that is the correct end state until the human returns.
+
+**Push conflict:** after human approval, agent rebases and retries — up to 3 times on a busy trunk. Still failing after 3 → pause, re-notify the human via the queue.
 
 **ADR escalation:** hard stop on affected agent, notify user immediately, others continue.
 
@@ -206,6 +216,7 @@ The actual conflict resolution mechanism is the `do-push` rebase-and-retry loop 
 ## Rules
 
 - **Use `TeamCreate` and named agents** — not anonymous subagents. Named agents are addressable, resumable, and visible in the shared task list.
+- **Never approve a push on the human's behalf** — the coordinator routes the human's go-ahead, never substitutes for it
 - Never sequence pushes — concurrent by design
 - ADR escalation is always a hard stop
 - **Never pick up an unassigned Ready issue** — log it
