@@ -110,6 +110,69 @@ fn log_error_walks_source_chain() {
 }
 
 #[test]
+fn concurrent_threads_write_whole_lines() {
+    use std::sync::Arc;
+    use std::thread;
+
+    const THREADS: usize = 16;
+    const LINES_PER_THREAD: usize = 50;
+    const BODY_SIZE: usize = 8 * 1024;
+
+    let dir = tempdir().unwrap();
+    let log = dir.path().join("remit.log");
+    let logger = Arc::new(FileLogger::new(log.clone(), Vec::new()));
+
+    let handles: Vec<_> = (0..THREADS)
+        .map(|t| {
+            let logger = Arc::clone(&logger);
+            thread::spawn(move || {
+                let marker = format!("THREAD-{t:03}");
+                let body = "x".repeat(BODY_SIZE);
+                for i in 0..LINES_PER_THREAD {
+                    logger.log_line(&format!("{marker} seq={i:04} body={body}"));
+                }
+            })
+        })
+        .collect();
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    let content = fs::read_to_string(&log).unwrap();
+    let lines: Vec<&str> = content.lines().collect();
+
+    assert_eq!(
+        lines.len(),
+        THREADS * LINES_PER_THREAD,
+        "expected {} lines, got {}",
+        THREADS * LINES_PER_THREAD,
+        lines.len()
+    );
+
+    for (idx, line) in lines.iter().enumerate() {
+        let first_marker = &line[..line.find(' ').unwrap_or(line.len())];
+        assert!(
+            first_marker.starts_with("THREAD-"),
+            "line {idx} does not start with a marker: {line:?}"
+        );
+        let marker_count = line.matches("THREAD-").count();
+        assert_eq!(
+            marker_count, 1,
+            "line {idx} contains {marker_count} markers (expected 1) — interleaved write: {line:?}",
+        );
+        assert!(
+            line.contains(" seq="),
+            "line {idx} missing seq field: {line:?}"
+        );
+        let body_len = line.matches('x').count();
+        assert_eq!(
+            body_len, BODY_SIZE,
+            "line {idx} body length {body_len} != {BODY_SIZE}: truncated or fused",
+        );
+    }
+}
+
+#[test]
 fn appends_across_multiple_calls() {
     let dir = tempdir().unwrap();
     let log = dir.path().join("remit.log");

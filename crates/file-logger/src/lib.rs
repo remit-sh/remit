@@ -30,6 +30,11 @@ impl FileLogger {
 
     /// Append a single line to the log. Best-effort — IO errors are swallowed
     /// so the hook never fails-open due to a logging glitch.
+    ///
+    /// Writes are atomic across processes: an exclusive advisory lock is held
+    /// for the duration of one `write_all` call, and the line + trailing `\n`
+    /// is built as a single buffer so the syscall is one shot. This prevents
+    /// interleaving when many `claude-code-hook` processes append concurrently.
     pub fn log_line(&self, line: &str) {
         if let Some(parent) = self.path.parent() {
             let _ = create_dir_all(parent);
@@ -41,10 +46,22 @@ impl FileLogger {
         else {
             return;
         };
-        let _ = match &self.prefix {
-            Some(prefix) => writeln!(file, "{prefix} {line}"),
-            None => writeln!(file, "{line}"),
-        };
+        let mut buf = String::with_capacity(
+            self.prefix.as_ref().map_or(0, |p| p.len() + 1) + line.len() + 1,
+        );
+        if let Some(prefix) = &self.prefix {
+            buf.push_str(prefix);
+            buf.push(' ');
+        }
+        buf.push_str(line);
+        buf.push('\n');
+        // Block until we hold the exclusive lock. If locking fails, skip the
+        // write — best-effort logging never fails-open.
+        if file.lock().is_err() {
+            return;
+        }
+        let _ = file.write_all(buf.as_bytes());
+        // File drop releases the lock.
     }
 }
 
