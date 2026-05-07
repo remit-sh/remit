@@ -74,9 +74,49 @@ fn non_string_field_has_no_bundled_scope() {
     assert_eq!(bundled_scope_from("Agent", &input), None);
 }
 
+#[test]
+fn send_message_bundles_content_as_scope() {
+    let input = serde_json::json!({
+        "content": "Run the test suite and report failures.",
+        "recipient": "scout",
+        "to": "scout",
+    });
+    assert_eq!(
+        bundled_scope_from("SendMessage", &input),
+        Some("Run the test suite and report failures.".to_string())
+    );
+}
+
+#[test]
+fn send_message_missing_content_has_no_bundled_scope() {
+    let input = serde_json::json!({ "recipient": "scout", "to": "scout" });
+    assert_eq!(bundled_scope_from("SendMessage", &input), None);
+}
+
+#[test]
+fn send_message_empty_content_has_no_bundled_scope() {
+    let input = serde_json::json!({ "content": "", "recipient": "scout" });
+    assert_eq!(bundled_scope_from("SendMessage", &input), None);
+}
+
+#[test]
+fn send_message_whitespace_content_has_no_bundled_scope() {
+    let input = serde_json::json!({ "content": "  \n\t ", "recipient": "scout" });
+    assert_eq!(bundled_scope_from("SendMessage", &input), None);
+}
+
+#[test]
+fn send_message_non_string_content_has_no_bundled_scope() {
+    let input = serde_json::json!({ "content": { "type": "shutdown_request" } });
+    assert_eq!(bundled_scope_from("SendMessage", &input), None);
+}
+
 /// Snapshot the bundled-scope allowlist so adding a new entry is a deliberate,
 /// review-visible change. If you want to add a tool here, update the assertion too.
 #[test]
 fn bundled_scope_fields_allowlist_is_pinned() {
-    assert_eq!(BUNDLED_SCOPE_FIELDS, &[("Agent", "prompt")]);
+    assert_eq!(
+        BUNDLED_SCOPE_FIELDS,
+        &[("Agent", "prompt"), ("SendMessage", "content")]
+    );
 }

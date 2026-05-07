@@ -14,11 +14,14 @@ use osascript_prompter::OsascriptPrompter;
 #[cfg(test)]
 mod tests;
 
-/// Spawn-shaped tools → the field in their `tool_input` that carries the bundled
-/// scope for the child they spawn. Hook lifts this on the parent's `PreToolUse`
-/// and stages it under the parent's id; the child's start hook claims it.
+/// Scope-bearing parent tools → the field in their `tool_input` that carries
+/// the bundled scope for the child they spawn or re-wake. Hook lifts this on
+/// the parent's `PreToolUse` and stages it under the parent's id; the child's
+/// start hook claims it. `Agent` covers fresh in-process spawns and team
+/// peer-process spawns; `SendMessage` covers re-wakes of an existing subagent,
+/// where each round arrives as a new `SubagentStart` with a fresh `agent_id`.
 /// Vocab: [Bundled scope](../../../../docs/UBIQUITOUS_LANGUAGE.md#agents).
-const BUNDLED_SCOPE_FIELDS: &[(&str, &str)] = &[("Agent", "prompt")];
+const BUNDLED_SCOPE_FIELDS: &[(&str, &str)] = &[("Agent", "prompt"), ("SendMessage", "content")];
 
 #[derive(serde::Deserialize)]
 struct PreToolUsePayload {
