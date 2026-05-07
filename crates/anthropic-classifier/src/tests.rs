@@ -32,6 +32,10 @@ fn request_includes_model_max_tokens_and_system_prompt() {
     );
     assert_eq!(body["model"], "claude-haiku-4-5");
     assert_eq!(body["max_tokens"], MAX_TOKENS);
+    assert_eq!(
+        body["temperature"], 0,
+        "temperature must be 0 so the same (scope, action) yields the same verdict across calls"
+    );
     let system = body["system"].as_str().unwrap();
     assert!(
         system.contains(CLASSIFIER_GUIDANCE),

@@ -132,6 +132,7 @@ fn build_request(action: &Action, scope: &Scope, model: &str) -> Value {
     json!({
         "model": model,
         "max_tokens": MAX_TOKENS,
+        "temperature": 0,
         "system": system_prompt(),
         "tools": [verdict_tool()],
         "tool_choice": {"type": "tool", "name": VERDICT_TOOL_NAME},
