@@ -1,5 +1,5 @@
 ---
-number: 2026-006
+number: 2026-007
 title: Subagent re-wake bundled scope
 kind: plan
 status: active
@@ -7,7 +7,7 @@ issue: "#25"
 tags: [scope, hook, bundled-scope, send-message]
 ---
 
-# TN-2026-006: Subagent re-wake bundled scope
+# TN-2026-007: Subagent re-wake bundled scope
 
 > Re-wakes via `SendMessage` arrive with a fresh `agent_id` and no pending row. Children fail-closed on first tool call. Fix: treat `SendMessage.content` as the bundled scope for the round.
 
@@ -48,6 +48,16 @@ tags: [scope, hook, bundled-scope, send-message]
 - Snapshot test on `BUNDLED_SCOPE_FIELDS` updated to include the new pair.
 - Existing `("Agent", "prompt")` cases stay green — additive change.
 - Empty / whitespace / missing `content` rejected by the existing trim filter; covered by the parametrised allowlist tests.
+
+## Directional assumption
+
+`Agent.prompt` is unambiguously parent→child intent. `SendMessage.content` isn't — it can flow in any direction. Three cases observed in `~/.remit/remit.log` from real team runs:
+
+- **Parent → child re-wake.** `SubagentStart` fires with `parent_id = sender`, fresh `agent_id`. The fix stages and the start hook claims. ✓ Confirmed at log lines 3105–3108 (coordinator → `dev-4`) and 3137 + claim (`dev-6-2`).
+- **Child → parent report-back.** No `SubagentStart` fires — the parent is already running. The new fix stages a row under the child's id that nothing claims. Cleared by single-slot overwrite if the child later does an `Agent` spawn; otherwise orphaned. Pollutes the pending store but does not bind a wrong scope. Confirmed at lines 142, 2201, 2245, 2699, 2753, 3032, 3125, 3342, 3463, 3575 — every child→coordinator round in the trace produced no claim attempt.
+- **Peer ↔ peer.** Not observed. Every team round in the trace is flat: workers message `coordinator`, never each other. **If** a peer-to-peer workflow appeared **and** the recipient's `SubagentStart` carried `parent_id = sender` (which the runtime does for case 1, so it's plausible), the recipient would inherit the sender's message text as scope. Real risk, currently theoretical.
+
+Revisit if peer-to-peer SendMessage workflows appear. Mitigations on the table: filter by recipient identity (only stage when the recipient is a known subagent of the caller), or move to `(parent, recipient_name)` pending keying as part of #20.
 
 ## Out of scope
 
