@@ -96,13 +96,12 @@ This is a security tool. Its own posture must be exemplary.
 
 # Documentation
 
+- [`docs/decisions/`](docs/decisions/) — ADRs and CDRs. **Active records are authoritative.** Review agents check every change against the `## Compliance` section of each active record, and either flag a non-compliance or draft a new ADR/CDR for human approval rather than silently diverging.
 - [`docs/tn/`](docs/tn/) — Technical Notes: proposals, specs, plans, explorations, research.
-- [`docs/decisions/adr/`](docs/decisions/adr/) — Architectural Decision Records.
-- [`docs/decisions/cdr/`](docs/decisions/cdr/) — Convention Decision Records.
-- [`docs/UBIQUITOUS_LANGUAGE.md`](docs/UBIQUITOUS_LANGUAGE.md) — vocabulary contract.
+- [`docs/UBIQUITOUS_LANGUAGE.md`](docs/UBIQUITOUS_LANGUAGE.md) — vocabulary contract (ratified by [CDR-0001](docs/decisions/cdr/CDR-0001-ubiquitous-language-contract.md)).
 - [`docs/diag/`](docs/diag/) — empirical hook payload traces.
 
-[TN-2026-001](docs/tn/TN-2026-001-technical-notes-and-doc-structure.md) defines the doc system: numbering, front matter, status, and the TN style rule (compact, bulleted, no long prose).
+[CDR-0004](docs/decisions/cdr/CDR-0004-doc-system-layout.md) defines the doc system: numbering, front matter, status, promotion, and the style rule (compact, bulleted, no long prose).
 
 When code changes affect documented behaviour, update the doc in the same change. Stale docs are worse than no docs.
 

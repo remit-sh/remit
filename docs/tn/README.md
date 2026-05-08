@@ -8,7 +8,7 @@ See [TN-2026-001](TN-2026-001-technical-notes-and-doc-structure.md) for the syst
 
 | TN | Title | Kind | Status |
 |---|---|---|---|
-| [TN-2026-001](TN-2026-001-technical-notes-and-doc-structure.md) | Technical Notes and documentation structure | proposal | active |
+| [TN-2026-001](TN-2026-001-technical-notes-and-doc-structure.md) | Technical Notes and documentation structure | proposal | superseded → [CDR-0004](../decisions/cdr/CDR-0004-doc-system-layout.md) |
 | [TN-2026-002](TN-2026-002-mvp-north-star.md) | MVP North Star | spec | draft |
 | [TN-2026-003](TN-2026-003-session-scope-acquisition.md) | Agent scope acquisition | plan | active |
 | [TN-2026-004](TN-2026-004-classifier-logger-error-verdict.md) | ClassifierLogger captures error and verdict | plan | active |

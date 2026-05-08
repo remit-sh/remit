@@ -2,12 +2,15 @@
 number: 2026-001
 title: Technical Notes and documentation structure
 kind: proposal
-status: active
+status: superseded
 issue: "#6"
+superseded-by: [CDR-0004]
 tags: [documentation, process, meta]
 ---
 
 # TN-2026-001: Technical Notes and documentation structure
+
+> Superseded by [CDR-0004](../decisions/cdr/CDR-0004-doc-system-layout.md). The CDR is now authoritative; this TN is kept for historical context.
 
 > Eats its own dogfood: this is the first TN, in the new location, in the new format.
 
