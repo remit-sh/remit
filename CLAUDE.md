@@ -119,7 +119,7 @@ just test           # tests only
 After cloning, install the pre-push hook:
 
 ```sh
-./scripts/install-hooks.sh
+./scripts/install-git-hooks.sh
 ```
 
 # Test coverage

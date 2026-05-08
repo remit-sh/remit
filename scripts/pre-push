@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Pre-push hook: fmt, clippy, tests.
-# Installed via scripts/install-hooks.sh.
+# Installed via scripts/install-git-hooks.sh.
 # Skip with: git push --no-verify
 
 set -euo pipefail

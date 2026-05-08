@@ -33,7 +33,7 @@ just check    # fmt + clippy + tests (mirrors the pre-push hook)
 After cloning, install the **git** pre-push hook:
 
 ```sh
-./scripts/install-hooks.sh
+./scripts/install-git-hooks.sh
 ```
 
 ## Setup
