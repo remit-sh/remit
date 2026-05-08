@@ -1,23 +1,18 @@
 #!/usr/bin/env bash
 # Install the remit pre-push hook.
-# Creates a symlink from .git/hooks/pre-push to scripts/pre-push.
+# Creates a relative symlink so it survives repo-directory renames and works
+# from any linked worktree's hook invocation.
 # Idempotent: safe to run multiple times.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-HOOKS_DIR="$REPO_ROOT/.git/hooks"
+HOOKS_DIR="$(git -C "$SCRIPT_DIR" rev-parse --git-common-dir)/hooks"
 
-if [ ! -d "$HOOKS_DIR" ]; then
-    echo "error: .git/hooks/ not found — run from within the remit repository." >&2
-    exit 1
-fi
+mkdir -p "$HOOKS_DIR"
+chmod +x "$SCRIPT_DIR/pre-push"
 
-HOOK_SOURCE="$SCRIPT_DIR/pre-push"
-HOOK_DEST="$HOOKS_DIR/pre-push"
+# Relative target resolves from .git/hooks/ → <repo>/scripts/pre-push.
+ln -sf ../../scripts/pre-push "$HOOKS_DIR/pre-push"
 
-chmod +x "$HOOK_SOURCE"
-ln -sf "$HOOK_SOURCE" "$HOOK_DEST"
-
-echo "Installed: $HOOK_DEST -> $HOOK_SOURCE"
+echo "Installed: $HOOKS_DIR/pre-push -> ../../scripts/pre-push"
