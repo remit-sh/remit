@@ -120,3 +120,161 @@ fn bundled_scope_fields_allowlist_is_pinned() {
         &[("Agent", "prompt"), ("SendMessage", "content")]
     );
 }
+
+#[test]
+fn strip_drops_top_level_narration_fields() {
+    let mut v = serde_json::json!({
+        "command": "ls",
+        "description": "list root",
+        "reason": "because",
+        "note": "n",
+        "comment": "c",
+        "intent": "i",
+        "purpose": "p",
+        "rationale": "r",
+        "justification": "j",
+        "summary": "s",
+    });
+    strip_narration(&mut v);
+    assert_eq!(v, serde_json::json!({ "command": "ls" }));
+}
+
+#[test]
+fn strip_is_case_insensitive() {
+    let mut v = serde_json::json!({
+        "Description": "x",
+        "REASON": "y",
+        "Comment": "z",
+        "ok": 1,
+    });
+    strip_narration(&mut v);
+    assert_eq!(v, serde_json::json!({ "ok": 1 }));
+}
+
+#[test]
+fn strip_descends_into_nested_objects() {
+    let mut v = serde_json::json!({
+        "outer": { "reason": "x", "keep": 1, "deep": { "note": "y", "stay": 2 } }
+    });
+    strip_narration(&mut v);
+    assert_eq!(
+        v,
+        serde_json::json!({ "outer": { "keep": 1, "deep": { "stay": 2 } } })
+    );
+}
+
+#[test]
+fn strip_descends_into_arrays_of_objects() {
+    let mut v = serde_json::json!({
+        "items": [
+            { "keep": 1, "note": "x" },
+            { "keep": 2, "comment": "y" },
+        ]
+    });
+    strip_narration(&mut v);
+    assert_eq!(
+        v,
+        serde_json::json!({ "items": [{ "keep": 1 }, { "keep": 2 }] })
+    );
+}
+
+#[test]
+fn strip_preserves_non_object_root() {
+    let mut s = serde_json::json!("hello");
+    strip_narration(&mut s);
+    assert_eq!(s, serde_json::json!("hello"));
+
+    let mut n = serde_json::json!(42);
+    strip_narration(&mut n);
+    assert_eq!(n, serde_json::json!(42));
+
+    let mut a = serde_json::json!([1, 2, 3]);
+    strip_narration(&mut a);
+    assert_eq!(a, serde_json::json!([1, 2, 3]));
+
+    let mut null = serde_json::Value::Null;
+    strip_narration(&mut null);
+    assert_eq!(null, serde_json::Value::Null);
+}
+
+#[test]
+fn strip_preserves_prompt_and_content() {
+    let mut v = serde_json::json!({
+        "prompt": "do thing",
+        "content": "say hi",
+        "nested": { "prompt": "deep", "content": "deeper" },
+    });
+    let original = v.clone();
+    strip_narration(&mut v);
+    assert_eq!(v, original);
+}
+
+#[test]
+fn strip_no_op_when_no_narration() {
+    let mut v = serde_json::json!({ "command": "ls", "args": ["-la"] });
+    let original = v.clone();
+    strip_narration(&mut v);
+    assert_eq!(v, original);
+}
+
+#[test]
+fn strip_preserves_null_value_for_kept_key() {
+    let mut v = serde_json::json!({ "command": null, "args": [] });
+    strip_narration(&mut v);
+    assert_eq!(v, serde_json::json!({ "command": null, "args": [] }));
+}
+
+#[test]
+fn strip_descends_into_array_of_array_of_objects() {
+    let mut v = serde_json::json!([[{ "reason": "drop", "keep": 1 }]]);
+    strip_narration(&mut v);
+    assert_eq!(v, serde_json::json!([[{ "keep": 1 }]]));
+}
+
+#[test]
+fn strip_drops_narration_key_whose_value_is_an_object() {
+    let mut v = serde_json::json!({
+        "reason": { "nested": "val", "deeper": { "more": 1 } },
+        "keep": 1,
+    });
+    strip_narration(&mut v);
+    assert_eq!(v, serde_json::json!({ "keep": 1 }));
+}
+
+#[test]
+fn bundled_scope_extraction_survives_strip_on_same_payload() {
+    // Guards the source-order invariant in handle_pre_tool_use:
+    // bundled-scope extraction reads `prompt`/`content` from raw input;
+    // strip then drops narration. Both paths must be intact on the same payload.
+    let raw = serde_json::json!({
+        "prompt": "do thing",
+        "description": "narrator says hi",
+    });
+    assert_eq!(
+        bundled_scope_from("Agent", &raw),
+        Some("do thing".to_string())
+    );
+    let mut stripped = raw.clone();
+    strip_narration(&mut stripped);
+    assert_eq!(stripped, serde_json::json!({ "prompt": "do thing" }));
+}
+
+/// Snapshot the narration denylist so adding a new entry is a deliberate,
+/// review-visible change. If you want to add a field here, update the assertion too.
+#[test]
+fn narration_fields_denylist_is_pinned() {
+    assert_eq!(
+        NARRATION_FIELDS,
+        &[
+            "description",
+            "reason",
+            "note",
+            "comment",
+            "intent",
+            "purpose",
+            "rationale",
+            "justification",
+            "summary",
+        ]
+    );
+}

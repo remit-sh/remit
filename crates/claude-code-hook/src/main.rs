@@ -23,6 +23,23 @@ mod tests;
 /// Vocab: [Bundled scope](../../../../docs/UBIQUITOUS_LANGUAGE.md#agents).
 const BUNDLED_SCOPE_FIELDS: &[(&str, &str)] = &[("Agent", "prompt"), ("SendMessage", "content")];
 
+/// JSON keys dropped from `tool_input` before classification. Agent-controlled
+/// narration that biases the classifier without grounding behaviour. Walked
+/// recursively, matched case-insensitively. Tool-agnostic by design — a tool
+/// using one of these names for behavioural input pays the false-Red cost in
+/// exchange for keeping the rule generic. See TN-2026-008.
+const NARRATION_FIELDS: &[&str] = &[
+    "description",
+    "reason",
+    "note",
+    "comment",
+    "intent",
+    "purpose",
+    "rationale",
+    "justification",
+    "summary",
+];
+
 #[derive(serde::Deserialize)]
 struct PreToolUsePayload {
     session_id: String,
@@ -140,6 +157,11 @@ fn handle_pre_tool_use(
         stage_pending(&payload_session, text, pending_store, logger);
     }
 
+    // Drop agent-controlled narration keys before the classifier sees the input.
+    // Bundled-scope extraction has already run on untouched input.
+    let mut tool_input = payload.tool_input;
+    strip_narration(&mut tool_input);
+
     // Identity collapse: in-process subagents have their own `agent_id` that
     // uniquely identifies them. We file scopes under it and treat the payload
     // session id as the parent for inheritance walks (and for matching pending rows).
@@ -159,7 +181,7 @@ fn handle_pre_tool_use(
         action: Action {
             call_id: payload.tool_use_id.map(CallId::new),
             kind: ActionKind::new(payload.tool_name),
-            args: ActionArgs::new(payload.tool_input.to_string()),
+            args: ActionArgs::new(tool_input.to_string()),
         },
         working_dir: payload.cwd,
     };
@@ -268,6 +290,29 @@ fn parent_from_env(self_id: &AgentId) -> Option<AgentId> {
 fn parent_from_env_value(env: Option<String>, self_id: &AgentId) -> Option<AgentId> {
     env.and_then(|s| AgentId::try_new(s).ok())
         .filter(|p| p != self_id)
+}
+
+/// Recursively drop [`NARRATION_FIELDS`] from a JSON value in place. Object
+/// keys are matched case-insensitively. Descends into nested objects and into
+/// objects inside arrays. Non-object, non-array roots are unchanged.
+fn strip_narration(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            map.retain(|k, v| {
+                if NARRATION_FIELDS.iter().any(|f| f.eq_ignore_ascii_case(k)) {
+                    return false;
+                }
+                strip_narration(v);
+                true
+            });
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                strip_narration(v);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Extract bundled-scope text for a spawn-shaped tool call. Returns `None` for
