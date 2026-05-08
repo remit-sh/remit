@@ -106,6 +106,8 @@ This is a security tool. Its own posture must be exemplary.
 
 When code changes affect documented behaviour, update the doc in the same change. Stale docs are worse than no docs.
 
+**Run `/streamline-doc` on every newly created or substantially edited markdown doc, immediately after writing.** Applies to TNs, ADRs, CDRs, READMEs, and any other `.md` under `docs/`. Non-negotiable — drafts ship through streamline before review.
+
 # Build
 
 ```sh
