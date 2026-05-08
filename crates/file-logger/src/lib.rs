@@ -46,9 +46,8 @@ impl FileLogger {
         else {
             return;
         };
-        let mut buf = String::with_capacity(
-            self.prefix.as_ref().map_or(0, |p| p.len() + 1) + line.len() + 1,
-        );
+        let mut buf =
+            String::with_capacity(self.prefix.as_ref().map_or(0, |p| p.len() + 1) + line.len() + 1);
         if let Some(prefix) = &self.prefix {
             buf.push_str(prefix);
             buf.push(' ');
