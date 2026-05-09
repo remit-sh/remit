@@ -16,3 +16,4 @@ See [TN-2026-001](TN-2026-001-technical-notes-and-doc-structure.md) for the syst
 | [TN-2026-006](TN-2026-006-file-logger-concurrent-writes.md) | FileLogger atomic appends under concurrent processes | plan | active |
 | [TN-2026-007](TN-2026-007-subagent-rewake-bundled-scope.md) | Subagent re-wake bundled scope | plan | active |
 | [TN-2026-008](TN-2026-008-remit-md-format.md) | REMIT.md format | spec | draft |
+| [TN-2026-009](TN-2026-009-agent-templates.md) | Agent templates — per-Agent-type guidance | spec | draft |
