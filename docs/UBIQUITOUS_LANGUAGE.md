@@ -27,6 +27,8 @@
 | **Verdict** | **Green** \| **Red**. | Decision, ruling |
 | **Green** / **Red** | Action serves / does not serve the **Scope**. | Pass / Deny |
 | **Reason** | Justification on a Red **Verdict**. | Explanation |
+| **Standing guidance** | Umbrella for trusted policy text fed to the **Classifier** every call — currently **Project guidance**; reserved slots for per-Agent-type templates (#32) and user-level guidance. | Project context, policy |
+| **Project guidance** | Contents of `REMIT.md`, the project-scoped slot of **Standing guidance**. Peer to the firewall framing; not an allowlist. | Standing policy, project context, project policy |
 
 ## Documentation
 

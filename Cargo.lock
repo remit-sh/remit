@@ -68,6 +68,7 @@ dependencies = [
  "domain",
  "file-logger",
  "file-scope-store",
+ "file-standing-guidance",
  "osascript-prompter",
  "remit-config",
  "serde",
@@ -139,6 +140,15 @@ dependencies = [
  "domain",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "file-standing-guidance"
+version = "0.1.0"
+dependencies = [
+ "domain",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]

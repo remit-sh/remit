@@ -7,7 +7,8 @@ use domain::{
 
 mod common;
 use common::{
-    FakeLlmClassifier, FakePrompter, FakeReader, LoggedVerdict, RecordingLogger, RecordingWriter,
+    FakeGuidanceReader, FakeLlmClassifier, FakePrompter, FakeReader, LoggedVerdict,
+    RecordingLogger, RecordingWriter,
 };
 
 fn id(s: &str) -> AgentId {
@@ -42,6 +43,7 @@ fn green_when_existing_scope_present_and_llm_green() {
         &reader,
         &prompter,
         &writer,
+        &FakeGuidanceReader::none(),
         &classifier,
         &logger,
     );
@@ -60,6 +62,7 @@ fn red_out_of_scope_when_existing_scope_and_llm_red() {
         &reader,
         &prompter,
         &writer,
+        &FakeGuidanceReader::none(),
         &classifier,
         &logger,
     ) else {
@@ -80,6 +83,7 @@ fn red_classifier_unavailable_when_existing_scope_and_llm_fails() {
         &reader,
         &prompter,
         &writer,
+        &FakeGuidanceReader::none(),
         &classifier,
         &logger,
     ) else {
@@ -101,6 +105,7 @@ fn green_after_successful_prompt_persist_and_llm_green() {
         &reader,
         &prompter,
         &writer,
+        &FakeGuidanceReader::none(),
         &classifier,
         &logger,
     );
@@ -120,6 +125,7 @@ fn red_scope_setup_cancelled_when_prompt_cancelled() {
         &reader,
         &prompter,
         &writer,
+        &FakeGuidanceReader::none(),
         &classifier,
         &logger,
     ) else {
@@ -140,6 +146,7 @@ fn red_scope_setup_unavailable_when_prompt_fails() {
         &reader,
         &prompter,
         &writer,
+        &FakeGuidanceReader::none(),
         &classifier,
         &logger,
     ) else {
@@ -160,6 +167,7 @@ fn red_store_unavailable_when_reader_fails() {
         &reader,
         &prompter,
         &writer,
+        &FakeGuidanceReader::none(),
         &classifier,
         &logger,
     ) else {
@@ -183,6 +191,7 @@ fn red_subagent_missing_scope_when_subagent_has_no_bound_scope() {
         &reader,
         &prompter,
         &writer,
+        &FakeGuidanceReader::none(),
         &classifier,
         &logger,
     ) else {
@@ -208,6 +217,7 @@ fn logs_incoming_and_outcome_on_green() {
         &reader,
         &prompter,
         &writer,
+        &FakeGuidanceReader::none(),
         &classifier,
         &logger,
     );
@@ -229,6 +239,7 @@ fn logs_final_verdict_after_no_scope_root_transformation() {
         &reader,
         &prompter,
         &writer,
+        &FakeGuidanceReader::none(),
         &classifier,
         &logger,
     );
@@ -254,6 +265,7 @@ fn logs_error_and_outcome_on_store_failure() {
         &reader,
         &prompter,
         &writer,
+        &FakeGuidanceReader::none(),
         &classifier,
         &logger,
     );
@@ -288,6 +300,7 @@ fn logs_error_and_outcome_on_prompt_failure() {
         &reader,
         &prompter,
         &writer,
+        &FakeGuidanceReader::none(),
         &classifier,
         &logger,
     );
@@ -304,6 +317,92 @@ fn logs_error_and_outcome_on_prompt_failure() {
 }
 
 #[test]
+fn red_standing_guidance_unavailable_when_reader_fails() {
+    let reader = FakeReader::new().with(id("sess"), scope("do the thing"));
+    let prompter = FakePrompter::returning(scope("nope"));
+    let writer = RecordingWriter::new();
+    let llm = FakeLlmClassifier::green();
+    let llm_calls = llm.call_count();
+    let classifier = Classifier::new(llm);
+    let logger = RecordingLogger::new();
+    let errors = logger.errors();
+    let Verdict::Red { kind, reason } = process_action(
+        &input(Agent::root(id("sess"))),
+        &reader,
+        &prompter,
+        &writer,
+        &FakeGuidanceReader::unavailable(),
+        &classifier,
+        &logger,
+    ) else {
+        panic!("expected Red");
+    };
+    assert_eq!(kind, RedKind::StandingGuidanceUnavailable);
+    assert!(reason.contains("standing guidance unavailable"));
+    assert_eq!(
+        *llm_calls.borrow(),
+        0,
+        "LLM must not be called when guidance read fails"
+    );
+    assert_eq!(errors.borrow().len(), 1, "error path must log");
+}
+
+#[test]
+fn project_guidance_threads_from_reader_into_llm_context_when_some() {
+    let reader = FakeReader::new().with(id("sess"), scope("do the thing"));
+    let prompter = FakePrompter::returning(scope("nope"));
+    let writer = RecordingWriter::new();
+    let llm = FakeLlmClassifier::green();
+    let last_standing = llm.last_standing();
+    let classifier = Classifier::new(llm);
+    let logger = RecordingLogger::new();
+    let body = "# project\n## Conventions\n- crates only";
+    let v = process_action(
+        &input(Agent::root(id("sess"))),
+        &reader,
+        &prompter,
+        &writer,
+        &FakeGuidanceReader::some(body),
+        &classifier,
+        &logger,
+    );
+    assert!(matches!(v, Verdict::Green));
+    assert_eq!(
+        last_standing.borrow().project.as_deref(),
+        Some(body),
+        "process_action must thread reader.read() output into the LLM's StandingGuidance"
+    );
+    assert!(
+        last_standing.borrow().agent_template.is_none(),
+        "agent_template slot stays None until #32 fills it"
+    );
+}
+
+#[test]
+fn project_guidance_is_none_at_llm_when_reader_returns_none() {
+    let reader = FakeReader::new().with(id("sess"), scope("do the thing"));
+    let prompter = FakePrompter::returning(scope("nope"));
+    let writer = RecordingWriter::new();
+    let llm = FakeLlmClassifier::green();
+    let last_standing = llm.last_standing();
+    let classifier = Classifier::new(llm);
+    let logger = RecordingLogger::new();
+    process_action(
+        &input(Agent::root(id("sess"))),
+        &reader,
+        &prompter,
+        &writer,
+        &FakeGuidanceReader::none(),
+        &classifier,
+        &logger,
+    );
+    assert!(
+        last_standing.borrow().project.is_none(),
+        "absent guidance must reach LLM with project: None"
+    );
+}
+
+#[test]
 fn does_not_log_error_on_green() {
     let reader = FakeReader::new().with(id("sess"), scope("do the thing"));
     let prompter = FakePrompter::returning(scope("nope"));
@@ -316,6 +415,7 @@ fn does_not_log_error_on_green() {
         &reader,
         &prompter,
         &writer,
+        &FakeGuidanceReader::none(),
         &classifier,
         &logger,
     );

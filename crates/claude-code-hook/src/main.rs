@@ -9,6 +9,7 @@ use domain::{
 };
 use file_logger::FileLogger;
 use file_scope_store::{FilePendingScopeStore, FileScopeStore};
+use file_standing_guidance::FileStandingGuidanceReader;
 use osascript_prompter::OsascriptPrompter;
 
 #[cfg(test)]
@@ -27,7 +28,7 @@ const BUNDLED_SCOPE_FIELDS: &[(&str, &str)] = &[("Agent", "prompt"), ("SendMessa
 /// narration that biases the classifier without grounding behaviour. Walked
 /// recursively, matched case-insensitively. Tool-agnostic by design — a tool
 /// using one of these names for behavioural input pays the false-Red cost in
-/// exchange for keeping the rule generic. See TN-2026-008.
+/// exchange for keeping the rule generic.
 const NARRATION_FIELDS: &[&str] = &[
     "description",
     "reason",
@@ -176,6 +177,7 @@ fn handle_pre_tool_use(
         },
     };
 
+    let cwd = payload.cwd.clone();
     let classifier_input = ClassificationInput {
         agent,
         action: Action {
@@ -183,16 +185,18 @@ fn handle_pre_tool_use(
             kind: ActionKind::new(payload.tool_name),
             args: ActionArgs::new(tool_input.to_string()),
         },
-        working_dir: payload.cwd,
+        working_dir: cwd.clone(),
     };
 
     let prompter = OsascriptPrompter::new();
+    let guidance_reader = FileStandingGuidanceReader::new(cwd);
     let classifier = Classifier::new(llm);
     let verdict = process_action(
         &classifier_input,
         scope_store,
         &prompter,
         scope_store,
+        &guidance_reader,
         &classifier,
         logger,
     );

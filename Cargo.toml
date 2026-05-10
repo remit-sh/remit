@@ -5,6 +5,7 @@ members = [
     "crates/remit-config",
     "crates/file-logger",
     "crates/file-scope-store",
+    "crates/file-standing-guidance",
     "crates/osascript-prompter",
     "crates/anthropic-classifier",
     "crates/claude-code-hook",

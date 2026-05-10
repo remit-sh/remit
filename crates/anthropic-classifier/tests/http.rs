@@ -2,7 +2,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use anthropic_classifier::AnthropicClassifier;
-use domain::{Action, ActionArgs, ActionKind, LlmClassifier, LlmDecision, Scope};
+use domain::{
+    Action, ActionArgs, ActionKind, ClassificationContext, LlmClassifier, LlmDecision, Scope,
+    StandingGuidance,
+};
 use tiny_http::{Header, Response, Server};
 
 struct CapturedRequest {
@@ -68,6 +71,18 @@ fn scope() -> Scope {
     Scope::try_new("do the thing").unwrap()
 }
 
+fn ctx<'a>(
+    action: &'a Action,
+    scope: &'a Scope,
+    standing: &'a StandingGuidance,
+) -> ClassificationContext<'a> {
+    ClassificationContext {
+        action,
+        scope,
+        standing,
+    }
+}
+
 #[test]
 fn classify_sends_post_with_required_headers_and_forces_verdict_tool() {
     let mock = spawn_mock(
@@ -76,7 +91,9 @@ fn classify_sends_post_with_required_headers_and_forces_verdict_tool() {
     );
     let classifier = AnthropicClassifier::new("sk-test".into(), "claude-haiku-4-5".into())
         .with_endpoint(mock.url.clone());
-    let decision = classifier.classify(&action(), &scope()).unwrap();
+    let decision = classifier
+        .classify(&ctx(&action(), &scope(), &StandingGuidance::default()))
+        .unwrap();
     assert!(matches!(decision, LlmDecision::Green));
 
     let captured = mock.captured.lock().unwrap();
@@ -99,7 +116,10 @@ fn classify_returns_red_when_server_says_red() {
     );
     let classifier = AnthropicClassifier::new("sk-test".into(), "claude-haiku-4-5".into())
         .with_endpoint(mock.url);
-    let LlmDecision::Red { reason } = classifier.classify(&action(), &scope()).unwrap() else {
+    let LlmDecision::Red { reason } = classifier
+        .classify(&ctx(&action(), &scope(), &StandingGuidance::default()))
+        .unwrap()
+    else {
         panic!("expected Red");
     };
     assert_eq!(reason, "unrelated");
@@ -110,7 +130,11 @@ fn classify_fails_unavailable_on_http_500() {
     let mock = spawn_mock(r#"{"error":"oops"}"#, 500);
     let classifier = AnthropicClassifier::new("sk-test".into(), "claude-haiku-4-5".into())
         .with_endpoint(mock.url);
-    assert!(classifier.classify(&action(), &scope()).is_err());
+    assert!(
+        classifier
+            .classify(&ctx(&action(), &scope(), &StandingGuidance::default()))
+            .is_err()
+    );
 }
 
 #[test]
@@ -121,5 +145,9 @@ fn classify_fails_unavailable_when_no_verdict_tool_use() {
     );
     let classifier = AnthropicClassifier::new("sk-test".into(), "claude-haiku-4-5".into())
         .with_endpoint(mock.url);
-    assert!(classifier.classify(&action(), &scope()).is_err());
+    assert!(
+        classifier
+            .classify(&ctx(&action(), &scope(), &StandingGuidance::default()))
+            .is_err()
+    );
 }

@@ -7,9 +7,10 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use domain::{
-    Action, AgentId, ClassificationInput, ClassifierLogger, LlmClassifier, LlmClassifierError,
-    LlmDecision, PromptError, RedKind, Scope, ScopePrompter, ScopeReader, ScopeStoreError,
-    ScopeWriter, Verdict,
+    AgentId, ClassificationContext, ClassificationInput, ClassifierLogger, LlmClassifier,
+    LlmClassifierError, LlmDecision, PromptError, RedKind, Scope, ScopePrompter, ScopeReader,
+    ScopeStoreError, ScopeWriter, StandingGuidance, StandingGuidanceError, StandingGuidanceReader,
+    Verdict,
 };
 
 pub struct FakeReader {
@@ -212,6 +213,7 @@ pub enum LlmOutcome {
 pub struct FakeLlmClassifier {
     outcome: LlmOutcome,
     calls: Rc<RefCell<usize>>,
+    last_standing: Rc<RefCell<StandingGuidance>>,
 }
 
 impl FakeLlmClassifier {
@@ -231,21 +233,26 @@ impl FakeLlmClassifier {
         Self {
             outcome,
             calls: Rc::new(RefCell::new(0)),
+            last_standing: Rc::new(RefCell::new(StandingGuidance::default())),
         }
     }
 
     pub fn call_count(&self) -> Rc<RefCell<usize>> {
         Rc::clone(&self.calls)
     }
+
+    /// Captures the most recent `ctx.standing` passed to `classify`. Tests use
+    /// this to assert process_action threaded the reader's output through
+    /// `ClassificationContext`.
+    pub fn last_standing(&self) -> Rc<RefCell<StandingGuidance>> {
+        Rc::clone(&self.last_standing)
+    }
 }
 
 impl LlmClassifier for FakeLlmClassifier {
-    fn classify(
-        &self,
-        _action: &Action,
-        _scope: &Scope,
-    ) -> Result<LlmDecision, LlmClassifierError> {
+    fn classify(&self, ctx: &ClassificationContext) -> Result<LlmDecision, LlmClassifierError> {
         *self.calls.borrow_mut() += 1;
+        *self.last_standing.borrow_mut() = ctx.standing.clone();
         match &self.outcome {
             LlmOutcome::Green => Ok(LlmDecision::Green),
             LlmOutcome::Red(reason) => Ok(LlmDecision::Red {
@@ -254,6 +261,52 @@ impl LlmClassifier for FakeLlmClassifier {
             LlmOutcome::Unavailable => {
                 Err(LlmClassifierError::Unavailable("fake LLM failure".into()))
             }
+        }
+    }
+}
+
+pub enum GuidanceOutcome {
+    None,
+    SomeProject(String),
+    Unavailable,
+}
+
+pub struct FakeGuidanceReader {
+    outcome: GuidanceOutcome,
+}
+
+impl FakeGuidanceReader {
+    pub fn none() -> Self {
+        Self {
+            outcome: GuidanceOutcome::None,
+        }
+    }
+
+    /// Populate the `project` slot (REMIT.md content).
+    pub fn some(text: &str) -> Self {
+        Self {
+            outcome: GuidanceOutcome::SomeProject(text.into()),
+        }
+    }
+
+    pub fn unavailable() -> Self {
+        Self {
+            outcome: GuidanceOutcome::Unavailable,
+        }
+    }
+}
+
+impl StandingGuidanceReader for FakeGuidanceReader {
+    fn read(&self) -> Result<StandingGuidance, StandingGuidanceError> {
+        match &self.outcome {
+            GuidanceOutcome::None => Ok(StandingGuidance::default()),
+            GuidanceOutcome::SomeProject(s) => Ok(StandingGuidance {
+                project: Some(s.clone()),
+                agent_template: None,
+            }),
+            GuidanceOutcome::Unavailable => Err(StandingGuidanceError::Unavailable(
+                "fake guidance failure".into(),
+            )),
         }
     }
 }

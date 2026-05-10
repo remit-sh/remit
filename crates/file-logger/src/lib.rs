@@ -112,5 +112,6 @@ fn red_kind_label(kind: &RedKind) -> &'static str {
         RedKind::StoreUnavailable => "StoreUnavailable",
         RedKind::OutOfScope => "OutOfScope",
         RedKind::ClassifierUnavailable => "ClassifierUnavailable",
+        RedKind::StandingGuidanceUnavailable => "StandingGuidanceUnavailable",
     }
 }

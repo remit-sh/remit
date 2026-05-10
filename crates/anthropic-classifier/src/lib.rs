@@ -13,7 +13,10 @@
 
 use std::time::Duration;
 
-use domain::{Action, CLASSIFIER_GUIDANCE, LlmClassifier, LlmClassifierError, LlmDecision, Scope};
+use domain::{
+    Action, ClassificationContext, LlmClassifier, LlmClassifierError, LlmDecision, Scope,
+    StandingGuidance, compose_trusted_system_prompt,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -47,15 +50,18 @@ pub enum ConfigError {
 /// burning operator API quota, and amplifying upstream timeouts.
 const MAX_ARGS_BYTES: usize = 8 * 1024;
 
-/// Wire-format directives layered on top of the domain's [`CLASSIFIER_GUIDANCE`].
-/// Tells the model where the data lives in the prompt and how to emit the
-/// verdict. Anthropic-specific.
+/// Wire-format directives layered on top of the trusted system prompt assembled
+/// by [`compose_trusted_system_prompt`]. Tells the model where the data lives
+/// and how to emit the verdict. Anthropic-specific.
 const WIRE_DIRECTIVES: &str = "\
 The SCOPE arrives wrapped in <scope> tags; the action's tool name and input arrive in <action_tool> and <action_input>. \
 Decide and emit the verdict by calling the `verdict` tool — do not reply with prose.";
 
-fn system_prompt() -> String {
-    format!("{CLASSIFIER_GUIDANCE}\n\n{WIRE_DIRECTIVES}")
+fn system_prompt(standing: &StandingGuidance) -> String {
+    format!(
+        "{}\n\n{WIRE_DIRECTIVES}",
+        compose_trusted_system_prompt(standing)
+    )
 }
 
 /// Anthropic Messages API adapter for the [`LlmClassifier`] port.
@@ -104,8 +110,8 @@ impl AnthropicClassifier {
 }
 
 impl LlmClassifier for AnthropicClassifier {
-    fn classify(&self, action: &Action, scope: &Scope) -> Result<LlmDecision, LlmClassifierError> {
-        let body = build_request(action, scope, &self.model);
+    fn classify(&self, ctx: &ClassificationContext) -> Result<LlmDecision, LlmClassifierError> {
+        let body = build_request(ctx, &self.model);
 
         let agent = ureq::AgentBuilder::new()
             .timeout_connect(CONNECT_TIMEOUT)
@@ -128,18 +134,18 @@ impl LlmClassifier for AnthropicClassifier {
     }
 }
 
-fn build_request(action: &Action, scope: &Scope, model: &str) -> Value {
+fn build_request(ctx: &ClassificationContext, model: &str) -> Value {
     json!({
         "model": model,
         "max_tokens": MAX_TOKENS,
         "temperature": 0,
-        "system": system_prompt(),
+        "system": system_prompt(ctx.standing),
         "tools": [verdict_tool()],
         "tool_choice": {"type": "tool", "name": VERDICT_TOOL_NAME},
         "messages": [
             {
                 "role": "user",
-                "content": user_message(action, scope),
+                "content": user_message(ctx.action, ctx.scope),
             }
         ],
     })

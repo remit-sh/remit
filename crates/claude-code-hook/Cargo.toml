@@ -8,8 +8,10 @@ rust-version.workspace = true
 anthropic-classifier = { path = "../anthropic-classifier" }
 domain = { path = "../domain" }
 file-logger = { path = "../file-logger" }
+file-standing-guidance = { path = "../file-standing-guidance" }
 file-scope-store = { path = "../file-scope-store" }
 osascript-prompter = { path = "../osascript-prompter" }
 remit-config = { path = "../remit-config" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+

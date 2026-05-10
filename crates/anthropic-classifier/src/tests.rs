@@ -1,4 +1,7 @@
-use domain::{Action, ActionArgs, ActionKind, Scope};
+use domain::{
+    Action, ActionArgs, ActionKind, CLASSIFIER_GUIDANCE, ClassificationContext,
+    PROJECT_GUIDANCE_HEADER, Scope, StandingGuidance,
+};
 use serde_json::json;
 
 use super::*;
@@ -15,6 +18,25 @@ fn scope(s: &str) -> Scope {
     Scope::try_new(s).unwrap()
 }
 
+fn standing_with_project(body: Option<&str>) -> StandingGuidance {
+    StandingGuidance {
+        project: body.map(str::to_string),
+        agent_template: None,
+    }
+}
+
+fn ctx<'a>(
+    action: &'a Action,
+    scope: &'a Scope,
+    standing: &'a StandingGuidance,
+) -> ClassificationContext<'a> {
+    ClassificationContext {
+        action,
+        scope,
+        standing,
+    }
+}
+
 fn green_response() -> serde_json::Value {
     json!({
         "content": [
@@ -25,9 +47,10 @@ fn green_response() -> serde_json::Value {
 
 #[test]
 fn request_includes_model_max_tokens_and_system_prompt() {
+    let a = action("Bash", "ls");
+    let s = scope("do the thing");
     let body = build_request(
-        &action("Bash", "ls"),
-        &scope("do the thing"),
+        &ctx(&a, &s, &standing_with_project(None)),
         "claude-haiku-4-5",
     );
     assert_eq!(body["model"], "claude-haiku-4-5");
@@ -49,9 +72,10 @@ fn request_includes_model_max_tokens_and_system_prompt() {
 
 #[test]
 fn request_forces_verdict_tool_use() {
+    let a = action("Bash", "ls");
+    let s = scope("anything");
     let body = build_request(
-        &action("Bash", "ls"),
-        &scope("anything"),
+        &ctx(&a, &s, &standing_with_project(None)),
         "claude-haiku-4-5",
     );
     assert_eq!(body["tool_choice"]["type"], "tool");
@@ -68,9 +92,10 @@ fn request_forces_verdict_tool_use() {
 
 #[test]
 fn request_user_message_wraps_scope_and_action_in_tags() {
+    let a = action("Bash", "cat /etc/passwd");
+    let s = scope("front-end work");
     let body = build_request(
-        &action("Bash", "cat /etc/passwd"),
-        &scope("front-end work"),
+        &ctx(&a, &s, &standing_with_project(None)),
         "claude-haiku-4-5",
     );
     let user_text = body["messages"][0]["content"].as_str().unwrap();
@@ -83,14 +108,61 @@ fn request_user_message_wraps_scope_and_action_in_tags() {
 #[test]
 fn user_message_truncates_oversized_args() {
     let big = "x".repeat(MAX_ARGS_BYTES * 2);
+    let a = action("Bash", &big);
+    let s = scope("anything");
     let body = build_request(
-        &action("Bash", &big),
-        &scope("anything"),
+        &ctx(&a, &s, &standing_with_project(None)),
         "claude-haiku-4-5",
     );
     let user_text = body["messages"][0]["content"].as_str().unwrap();
     assert!(user_text.contains("…[truncated]"));
     assert!(user_text.len() < big.len());
+}
+
+#[test]
+fn system_prompt_omits_project_guidance_block_when_none() {
+    let a = action("Bash", "ls");
+    let s = scope("anything");
+    let body = build_request(
+        &ctx(&a, &s, &standing_with_project(None)),
+        "claude-haiku-4-5",
+    );
+    let system = body["system"].as_str().unwrap();
+    // CLASSIFIER_GUIDANCE itself mentions <project_guidance> as part of its
+    // anti-injection framing — that's expected. What must not appear is the
+    // header that introduces real REMIT.md content, nor an opening tag on its
+    // own line followed by body bytes.
+    assert!(
+        !system.contains(PROJECT_GUIDANCE_HEADER),
+        "absent guidance must not emit the header"
+    );
+    assert!(
+        !system.contains("\n<project_guidance>\n"),
+        "absent guidance must not open a tagged block"
+    );
+}
+
+#[test]
+fn system_prompt_includes_project_guidance_between_classifier_guidance_and_wire_directives() {
+    let a = action("Bash", "ls");
+    let s = scope("anything");
+    let standing = standing_with_project(Some(
+        "## Project\nRust CLI.\n## Conventions\n- crates only.",
+    ));
+    let body = build_request(&ctx(&a, &s, &standing), "claude-haiku-4-5");
+    let system = body["system"].as_str().unwrap();
+    let cg_pos = system.find(CLASSIFIER_GUIDANCE).unwrap();
+    let header_pos = system.find(PROJECT_GUIDANCE_HEADER).unwrap();
+    let body_pos = system.find("Rust CLI.").unwrap();
+    let wire_pos = system.find("verdict` tool").unwrap();
+    assert!(
+        cg_pos < header_pos,
+        "header must follow CLASSIFIER_GUIDANCE"
+    );
+    assert!(header_pos < body_pos, "body must follow header");
+    assert!(body_pos < wire_pos, "WIRE_DIRECTIVES must follow body");
+    assert!(system.contains("<project_guidance>\n## Project"));
+    assert!(system.contains("- crates only.\n</project_guidance>"));
 }
 
 #[test]
