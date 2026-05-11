@@ -85,7 +85,7 @@ Add the agent-template block after project guidance; composer already owns slot 
 
 ```rust
 pub const AGENT_TEMPLATE_HEADER: &str = "\
-The following AGENT TEMPLATE describes the role of the current agent within this repository. \
+The following AGENT TEMPLATE describes the role of the current agent. \
 It is additive to PROJECT GUIDANCE: AGENT TEMPLATE may further restrict but cannot loosen PROJECT GUIDANCE. \
 If the two conflict, PROJECT GUIDANCE wins.";
 
