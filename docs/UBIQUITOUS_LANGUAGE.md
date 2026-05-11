@@ -30,7 +30,7 @@
 | **Reason** | Justification on a Red **Verdict**. | Explanation |
 | **Standing guidance** | Umbrella for trusted policy text fed to the **Classifier** every call — currently **Project guidance** and **Agent template**; reserved slots for user-level guidance. | Project context, policy |
 | **Project guidance** | Contents of `REMIT.md`, the project-scoped slot of **Standing guidance**. Peer to the firewall framing; not an allowlist. | Standing policy, project context, project policy |
-| **Agent template** | Per-**Agent type** slot of **Standing guidance**. Stored at `.remit/agent-templates/<agent_type>.md`. May further restrict but cannot loosen **Project guidance**. | Role template, subagent template |
+| **Agent template** | Per-**Agent type** slot of **Standing guidance**. Stored at `.remit/agent-templates/<agent_type>.md`. Policy specific to this agent type, sitting alongside **Project guidance**; commonly orthogonal (e.g. a `research-web` template authorising network fetches that the project doesn't mention). | Role template, subagent template |
 
 ## Documentation
 
