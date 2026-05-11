@@ -16,6 +16,7 @@
 | **Subagent** | A child **Agent** with its own **Scope**, set by the parent at spawn time (extracted from the spawn-tool payload). Runtime-agnostic. | Spawn, team member, child session |
 | **Session** | A Claude-Code-specific runtime term: one forked `claude` process. Use only when discussing Claude Code internals. The domain term is **Agent**. | — |
 | **Bundled scope** | The **Scope** carried in a parent's spawn-tool payload (e.g. `Agent.prompt`) that the hook lifts as the child's scope at spawn time. | Inherited scope (no longer used) |
+| **Agent type** | Runtime-supplied label for an **Agent**'s role (e.g. `architect`, `test-writer`, `general-purpose`). Carried in hook payloads for typed Agents (in-process **Subagents** and peer-process team Subagents); absent for root Agents. Selection key for **Agent template**. | role, kind, agent kind |
 
 ## Classification
 
@@ -27,8 +28,9 @@
 | **Verdict** | **Green** \| **Red**. | Decision, ruling |
 | **Green** / **Red** | Action serves / does not serve the **Scope**. | Pass / Deny |
 | **Reason** | Justification on a Red **Verdict**. | Explanation |
-| **Standing guidance** | Umbrella for trusted policy text fed to the **Classifier** every call — currently **Project guidance**; reserved slots for per-Agent-type templates (#32) and user-level guidance. | Project context, policy |
+| **Standing guidance** | Umbrella for trusted policy text fed to the **Classifier** every call — currently **Project guidance** and **Agent template**; reserved slots for user-level guidance. | Project context, policy |
 | **Project guidance** | Contents of `REMIT.md`, the project-scoped slot of **Standing guidance**. Peer to the firewall framing; not an allowlist. | Standing policy, project context, project policy |
+| **Agent template** | Per-**Agent type** slot of **Standing guidance**. Stored at `.remit/agent-templates/<agent_type>.md`. May further restrict but cannot loosen **Project guidance**. | Role template, subagent template |
 
 ## Documentation
 

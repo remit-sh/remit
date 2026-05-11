@@ -4,8 +4,8 @@ use std::path::PathBuf;
 
 use anthropic_classifier::AnthropicClassifier;
 use domain::{
-    Action, ActionArgs, ActionKind, Agent, AgentId, CallId, ClassificationInput, Classifier,
-    PendingScopeStore, Scope, Verdict, process_action,
+    Action, ActionArgs, ActionKind, Agent, AgentId, AgentType, CallId, ClassificationInput,
+    Classifier, PendingScopeStore, Scope, Verdict, process_action,
 };
 use file_logger::FileLogger;
 use file_scope_store::{FilePendingScopeStore, FileScopeStore};
@@ -46,6 +46,10 @@ struct PreToolUsePayload {
     session_id: String,
     /// Set only for in-process subagents — collapsed into the [`Agent`] identity.
     agent_id: Option<String>,
+    /// Runtime-supplied role label. Present for in-process and peer-process
+    /// subagents; absent for root sessions. Validated downstream into
+    /// [`AgentType`] for **Agent template** lookup (TN-2026-009).
+    agent_type: Option<String>,
 
     tool_use_id: Option<String>,
     tool_name: String,
@@ -188,8 +192,16 @@ fn handle_pre_tool_use(
         working_dir: cwd.clone(),
     };
 
+    let agent_type = parse_agent_type(payload.agent_type.as_deref());
+    if payload.agent_type.is_some() && agent_type.is_none() {
+        logger.log_line(&format!(
+            "invalid agent_type: {:?}; ignored",
+            payload.agent_type
+        ));
+    }
+
     let prompter = OsascriptPrompter::new();
-    let guidance_reader = FileStandingGuidanceReader::new(cwd);
+    let guidance_reader = FileStandingGuidanceReader::new(cwd).with_agent_type(agent_type);
     let classifier = Classifier::new(llm);
     let verdict = process_action(
         &classifier_input,
@@ -283,6 +295,15 @@ fn claim_and_assign(
         eprintln!("remit: {hook} claim_and_assign: assign failed; child will run unscoped");
         std::process::exit(2);
     }
+}
+
+/// Parse the raw `agent_type` from the hook payload into a validated
+/// [`AgentType`]. `None` for missing or invalid input; the caller logs
+/// invalid-but-present cases. Validation rejects path-traversal and unusual
+/// charset by construction, so unknown shapes silently fall back to "no
+/// template loaded" rather than failing the action.
+fn parse_agent_type(raw: Option<&str>) -> Option<AgentType> {
+    raw.and_then(|s| AgentType::try_new(s.to_string()).ok())
 }
 
 /// Recover the parent's [`AgentId`] from the `CLAUDE_SESSION_ID` env var. Used for

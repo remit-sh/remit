@@ -1,6 +1,6 @@
 use std::fs;
 
-use domain::StandingGuidanceReader;
+use domain::{AgentType, StandingGuidanceReader};
 use tempfile::TempDir;
 
 use super::*;
@@ -11,6 +11,17 @@ fn write(dir: &Path, name: &str, contents: &str) {
 
 fn touch_dir(dir: &Path, name: &str) {
     fs::create_dir(dir.join(name)).unwrap();
+}
+
+fn agent_type(s: &str) -> AgentType {
+    AgentType::try_new(s).unwrap()
+}
+
+/// Write `.remit/agent-templates/<type>.md` under `dir`, creating parents.
+fn write_template(dir: &Path, type_name: &str, contents: &str) {
+    let templates = dir.join(".remit/agent-templates");
+    fs::create_dir_all(&templates).unwrap();
+    fs::write(templates.join(format!("{type_name}.md")), contents).unwrap();
 }
 
 #[test]
@@ -196,4 +207,196 @@ fn read_returns_some_at_exactly_the_size_cap() {
         g.project.as_deref().unwrap().len(),
         MAX_REMIT_BYTES as usize
     );
+}
+
+// ----- Agent template (TN-2026-009 / #32) -----
+
+#[test]
+fn discover_agent_template_returns_none_with_no_type_dir_or_git() {
+    let tmp = TempDir::new().unwrap();
+    let t = agent_type("architect");
+    assert!(
+        discover_agent_template_path(tmp.path(), &t)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn discover_agent_template_returns_path_when_present_at_cwd() {
+    let tmp = TempDir::new().unwrap();
+    write_template(tmp.path(), "architect", "policy");
+    let t = agent_type("architect");
+    let path = discover_agent_template_path(tmp.path(), &t)
+        .unwrap()
+        .unwrap();
+    assert_eq!(path, tmp.path().join(".remit/agent-templates/architect.md"));
+}
+
+#[test]
+fn discover_agent_template_walks_up_to_find_template_in_parent() {
+    let tmp = TempDir::new().unwrap();
+    write_template(tmp.path(), "architect", "policy");
+    let sub = tmp.path().join("crates/foo");
+    fs::create_dir_all(&sub).unwrap();
+    let t = agent_type("architect");
+    let path = discover_agent_template_path(&sub, &t).unwrap().unwrap();
+    assert_eq!(path, tmp.path().join(".remit/agent-templates/architect.md"));
+}
+
+#[test]
+fn discover_agent_template_stops_at_git_boundary() {
+    let tmp = TempDir::new().unwrap();
+    let project = tmp.path().join("project");
+    fs::create_dir(&project).unwrap();
+    touch_dir(&project, ".git");
+    write_template(tmp.path(), "architect", "stray ancestor");
+    let sub = project.join("crates/foo");
+    fs::create_dir_all(&sub).unwrap();
+    let t = agent_type("architect");
+    assert!(
+        discover_agent_template_path(&sub, &t).unwrap().is_none(),
+        ".git boundary must prevent walk into ancestor templates dir"
+    );
+}
+
+#[test]
+fn discover_agent_template_inner_git_acts_as_boundary_for_submodule() {
+    let tmp = TempDir::new().unwrap();
+    write_template(tmp.path(), "architect", "outer");
+    touch_dir(tmp.path(), ".git");
+    let submodule = tmp.path().join("vendor/sub");
+    fs::create_dir_all(&submodule).unwrap();
+    touch_dir(&submodule, ".git");
+    let t = agent_type("architect");
+    assert!(
+        discover_agent_template_path(&submodule, &t)
+            .unwrap()
+            .is_none(),
+        "inner .git boundary must hide outer template from inner cwd"
+    );
+}
+
+#[test]
+fn discover_agent_template_missing_type_returns_none_when_dir_exists() {
+    let tmp = TempDir::new().unwrap();
+    write_template(tmp.path(), "architect", "exists");
+    let t = agent_type("test-writer");
+    assert!(
+        discover_agent_template_path(tmp.path(), &t)
+            .unwrap()
+            .is_none(),
+        "missing <type>.md inside an existing .remit/agent-templates/ must yield None"
+    );
+}
+
+#[test]
+fn read_without_agent_type_leaves_template_slot_none() {
+    let tmp = TempDir::new().unwrap();
+    write_template(tmp.path(), "architect", "policy");
+    let reader = FileStandingGuidanceReader::new(tmp.path().to_path_buf());
+    // No with_agent_type() call — reader has no key to look up.
+    let g = reader.read().unwrap();
+    assert!(g.agent_template.is_none());
+}
+
+#[test]
+fn read_with_agent_type_none_explicitly_leaves_template_slot_none() {
+    let tmp = TempDir::new().unwrap();
+    write_template(tmp.path(), "architect", "policy");
+    let reader = FileStandingGuidanceReader::new(tmp.path().to_path_buf()).with_agent_type(None);
+    let g = reader.read().unwrap();
+    assert!(g.agent_template.is_none());
+}
+
+#[test]
+fn read_with_agent_type_populates_template_slot_when_present() {
+    let tmp = TempDir::new().unwrap();
+    write_template(tmp.path(), "architect", "## Role\n\narchitect-only policy");
+    let reader = FileStandingGuidanceReader::new(tmp.path().to_path_buf())
+        .with_agent_type(Some(agent_type("architect")));
+    let g = reader.read().unwrap();
+    assert_eq!(
+        g.agent_template.as_deref(),
+        Some("## Role\n\narchitect-only policy")
+    );
+}
+
+#[test]
+fn read_with_agent_type_leaves_slot_none_when_template_missing() {
+    let tmp = TempDir::new().unwrap();
+    write_template(tmp.path(), "architect", "policy");
+    let reader = FileStandingGuidanceReader::new(tmp.path().to_path_buf())
+        .with_agent_type(Some(agent_type("test-writer")));
+    let g = reader.read().unwrap();
+    assert!(g.agent_template.is_none());
+}
+
+#[test]
+fn read_agent_template_strips_leading_bom() {
+    let tmp = TempDir::new().unwrap();
+    write_template(tmp.path(), "architect", "\u{FEFF}# policy");
+    let reader = FileStandingGuidanceReader::new(tmp.path().to_path_buf())
+        .with_agent_type(Some(agent_type("architect")));
+    let g = reader.read().unwrap();
+    assert_eq!(g.agent_template.as_deref(), Some("# policy"));
+}
+
+#[test]
+fn read_agent_template_returns_unavailable_when_exceeds_size_cap() {
+    let tmp = TempDir::new().unwrap();
+    let oversized = "x".repeat((MAX_REMIT_BYTES + 1) as usize);
+    write_template(tmp.path(), "architect", &oversized);
+    let reader = FileStandingGuidanceReader::new(tmp.path().to_path_buf())
+        .with_agent_type(Some(agent_type("architect")));
+    let err = reader.read().unwrap_err();
+    let chain = full_chain(&err);
+    assert!(
+        chain.contains("agent template exceeds"),
+        "expected size-cap reason in chain, got: {chain}"
+    );
+}
+
+#[test]
+fn read_agent_template_returns_unavailable_when_invalid_utf8() {
+    let tmp = TempDir::new().unwrap();
+    let templates = tmp.path().join(".remit/agent-templates");
+    fs::create_dir_all(&templates).unwrap();
+    fs::write(templates.join("architect.md"), [0xFF, 0xFE, 0xFD]).unwrap();
+    let reader = FileStandingGuidanceReader::new(tmp.path().to_path_buf())
+        .with_agent_type(Some(agent_type("architect")));
+    let err = reader.read().unwrap_err();
+    let chain = full_chain(&err);
+    assert!(
+        chain.contains("not valid UTF-8"),
+        "expected UTF-8 reason in chain, got: {chain}"
+    );
+}
+
+#[test]
+fn read_agent_template_returns_unavailable_when_path_is_directory() {
+    let tmp = TempDir::new().unwrap();
+    let templates = tmp.path().join(".remit/agent-templates");
+    fs::create_dir_all(&templates).unwrap();
+    fs::create_dir(templates.join("architect.md")).unwrap();
+    let reader = FileStandingGuidanceReader::new(tmp.path().to_path_buf())
+        .with_agent_type(Some(agent_type("architect")));
+    let err = reader.read().unwrap_err();
+    let chain = full_chain(&err);
+    assert!(
+        chain.contains("not a regular file"),
+        "expected directory reason in chain, got: {chain}"
+    );
+}
+
+#[test]
+fn read_populates_both_slots_when_remit_and_template_present() {
+    let tmp = TempDir::new().unwrap();
+    write(tmp.path(), "REMIT.md", "project body");
+    write_template(tmp.path(), "architect", "template body");
+    let reader = FileStandingGuidanceReader::new(tmp.path().to_path_buf())
+        .with_agent_type(Some(agent_type("architect")));
+    let g = reader.read().unwrap();
+    assert_eq!(g.project.as_deref(), Some("project body"));
+    assert_eq!(g.agent_template.as_deref(), Some("template body"));
 }

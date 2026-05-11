@@ -259,6 +259,61 @@ fn bundled_scope_extraction_survives_strip_on_same_payload() {
     assert_eq!(stripped, serde_json::json!({ "prompt": "do thing" }));
 }
 
+// ----- Agent type parsing (TN-2026-009 / #32) -----
+
+#[test]
+fn parse_agent_type_missing_yields_none() {
+    assert_eq!(parse_agent_type(None), None);
+}
+
+#[test]
+fn parse_agent_type_valid_yields_some() {
+    assert_eq!(
+        parse_agent_type(Some("architect")),
+        Some(AgentType::try_new("architect").unwrap())
+    );
+    assert_eq!(
+        parse_agent_type(Some("general-purpose")),
+        Some(AgentType::try_new("general-purpose").unwrap())
+    );
+}
+
+#[test]
+fn parse_agent_type_invalid_yields_none_never_panics() {
+    // Validation failure (path traversal, charset, length) must collapse to
+    // None — never Red, per TN-2026-009 fail-closed table.
+    assert_eq!(parse_agent_type(Some("")), None);
+    assert_eq!(parse_agent_type(Some("../etc/passwd")), None);
+    assert_eq!(parse_agent_type(Some("foo bar")), None);
+    assert_eq!(parse_agent_type(Some("Ärchitect")), None);
+}
+
+#[test]
+fn pretooluse_payload_deserialises_agent_type_when_present() {
+    let json = serde_json::json!({
+        "session_id": "sess",
+        "agent_id": "child",
+        "agent_type": "architect",
+        "tool_name": "Bash",
+        "tool_input": {},
+        "cwd": "/tmp",
+    });
+    let payload: PreToolUsePayload = serde_json::from_value(json).unwrap();
+    assert_eq!(payload.agent_type.as_deref(), Some("architect"));
+}
+
+#[test]
+fn pretooluse_payload_agent_type_absent_is_none() {
+    let json = serde_json::json!({
+        "session_id": "sess",
+        "tool_name": "Bash",
+        "tool_input": {},
+        "cwd": "/tmp",
+    });
+    let payload: PreToolUsePayload = serde_json::from_value(json).unwrap();
+    assert!(payload.agent_type.is_none());
+}
+
 /// Snapshot the narration denylist so adding a new entry is a deliberate,
 /// review-visible change. If you want to add a field here, update the assertion too.
 #[test]

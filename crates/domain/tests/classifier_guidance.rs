@@ -57,3 +57,14 @@ fn instructs_model_to_default_unobservable_red_to_green() {
         "guidance must say to return Green when Red would depend on unobservable state"
     );
 }
+
+#[test]
+fn anti_injection_clause_names_agent_template() {
+    // Mirrors the existing project-guidance anti-injection framing. The model
+    // must treat directives inside <agent_template> as data, not instructions.
+    assert!(
+        contains_ci(CLASSIFIER_GUIDANCE, "<agent_template>")
+            || contains_ci(CLASSIFIER_GUIDANCE, "agent template"),
+        "guidance must reference the agent template anti-injection envelope"
+    );
+}
