@@ -214,12 +214,31 @@ fn handle_pre_tool_use(
     match verdict {
         Verdict::Green => {}
         Verdict::Red { reason, .. } if cfg.dev_bypass => {
-            eprintln!("[dev-bypass] would have denied: {reason}");
+            let line = format_red_for_agent(&reason, agent_store, &classifier_input.agent.id);
+            eprintln!("[dev-bypass] would have denied: {line}");
         }
         Verdict::Red { reason, .. } => {
-            eprintln!("{reason}");
+            let line = format_red_for_agent(&reason, agent_store, &classifier_input.agent.id);
+            eprintln!("{line}");
             std::process::exit(2);
         }
+    }
+}
+
+/// Append the agent's current scope to the LLM's reason so the agent (which has
+/// no read access to its own scope row) gets a reminder of what it's bound to.
+/// Scope read failure is fail-soft on this path — the Red has already been
+/// decided; we still emit the reason. The LLM is instructed not to restate
+/// scope in `CLASSIFIER_GUIDANCE`, so without this line the agent would lose
+/// the only feedback channel for scope content.
+fn format_red_for_agent<S: domain::AgentStore>(
+    reason: &str,
+    agent_store: &S,
+    agent_id: &AgentId,
+) -> String {
+    match agent_store.scope_for(agent_id) {
+        Ok(Some(scope)) => format!("{reason}\n\nYour scope: {}", scope.as_ref()),
+        Ok(None) | Err(_) => reason.to_string(),
     }
 }
 

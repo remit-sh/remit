@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use domain::{PromptError, Prompter, Scope, VerdictChoice};
+use domain::{Action, PromptError, Prompter, Scope, VerdictChoice};
 
 /// Remit symbol (square icon, no text). Embedded at compile time and written
 /// to a tempfile so AppleScript can `initWithContentsOfFile:` it. NSAlert's
@@ -58,6 +58,7 @@ impl Prompter for OsascriptPrompter {
     fn choose(
         &self,
         scope: &Scope,
+        _action: &Action,
         reason: &str,
         working_dir: &Path,
     ) -> Result<VerdictChoice, PromptError> {

@@ -314,6 +314,100 @@ fn pretooluse_payload_agent_type_absent_is_none() {
     assert!(payload.agent_type.is_none());
 }
 
+// ----- format_red_for_agent: stderr rendering on Red -----
+
+use domain::{AgentStore, Scope, ScopeStoreError};
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+/// In-memory `AgentStore` mock for testing `format_red_for_agent` without
+/// touching the filesystem. Only the methods the function uses are non-trivial;
+/// the rest are stubs that panic so an unintended call surfaces in tests.
+///
+/// A richer fake (`FakeAgentStore`) exists in `crates/domain/tests/common/mod.rs`
+/// but it's tests-only inside the domain crate and not exported. This minimal
+/// duplicate covers the one read path this composition-root helper exercises.
+struct MockStore {
+    scopes: RefCell<HashMap<AgentId, Scope>>,
+    fail_read: bool,
+}
+
+impl MockStore {
+    fn empty() -> Self {
+        Self {
+            scopes: RefCell::new(HashMap::new()),
+            fail_read: false,
+        }
+    }
+
+    fn with_scope(id: &AgentId, scope: Scope) -> Self {
+        let me = Self::empty();
+        me.scopes.borrow_mut().insert(id.clone(), scope);
+        me
+    }
+
+    fn failing() -> Self {
+        Self {
+            scopes: RefCell::new(HashMap::new()),
+            fail_read: true,
+        }
+    }
+}
+
+impl AgentStore for MockStore {
+    fn scope_for(&self, id: &AgentId) -> Result<Option<Scope>, ScopeStoreError> {
+        if self.fail_read {
+            return Err(ScopeStoreError::Unavailable("mock failure".into()));
+        }
+        Ok(self.scopes.borrow().get(id).cloned())
+    }
+    fn assign_scope(&self, _: &AgentId, _: Scope) -> Result<(), ScopeStoreError> {
+        unimplemented!("not used by format_red_for_agent")
+    }
+    fn set_pending(&self, _: &AgentId, _: Scope) -> Result<(), ScopeStoreError> {
+        unimplemented!()
+    }
+    fn take_pending(&self, _: &AgentId) -> Result<Option<Scope>, ScopeStoreError> {
+        unimplemented!()
+    }
+    fn is_disabled(&self, _: &AgentId) -> Result<bool, ScopeStoreError> {
+        unimplemented!()
+    }
+    fn disable(&self, _: &AgentId) -> Result<(), ScopeStoreError> {
+        unimplemented!()
+    }
+}
+
+#[test]
+fn format_red_for_agent_appends_scope_when_present() {
+    let id = AgentId::try_new("agent-1").unwrap();
+    let scope = Scope::try_new("develop the frontend".to_string()).unwrap();
+    let store = MockStore::with_scope(&id, scope);
+    let out = format_red_for_agent("Action reads ~/.ssh", &store, &id);
+    assert_eq!(
+        out,
+        "Action reads ~/.ssh\n\nYour scope: develop the frontend"
+    );
+}
+
+#[test]
+fn format_red_for_agent_omits_scope_when_absent() {
+    let id = AgentId::try_new("agent-1").unwrap();
+    let store = MockStore::empty();
+    let out = format_red_for_agent("Action reads ~/.ssh", &store, &id);
+    assert_eq!(out, "Action reads ~/.ssh");
+}
+
+#[test]
+fn format_red_for_agent_omits_scope_when_store_errors() {
+    let id = AgentId::try_new("agent-1").unwrap();
+    let store = MockStore::failing();
+    // Fail-soft on the stderr-formatting path: Red has already been decided;
+    // we still emit the reason. The store error is not surfaced here.
+    let out = format_red_for_agent("Action reads ~/.ssh", &store, &id);
+    assert_eq!(out, "Action reads ~/.ssh");
+}
+
 /// Snapshot the narration denylist so adding a new entry is a deliberate,
 /// review-visible change. If you want to add a field here, update the assertion too.
 #[test]

@@ -98,6 +98,16 @@ enum ChooseDialog {
         let reason = Dialog.makeFieldLabel(label: "Reason:", value: req.reason)
         let scope = Dialog.makeFieldLabel(label: "Scope:", value: req.scope)
 
+        // Tool name becomes the field label — matches the **Reason:** / **Scope:**
+        // pattern. Row omitted entirely if the hook didn't send the action
+        // (older hooks; future placeholder).
+        let toolRow: NSView? = {
+            guard let name = req.tool_name, !name.isEmpty,
+                let preview = req.args_preview, !preview.isEmpty
+            else { return nil }
+            return Dialog.makeFieldLabel(label: "\(name):", value: preview)
+        }()
+
         let prompt = Dialog.makeLabel("Choose an action:")
         prompt.textColor = .secondaryLabelColor
         prompt.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
@@ -167,10 +177,16 @@ enum ChooseDialog {
             equalToConstant: Branding.windowWidth - 2 * Branding.edgeInset
         ).isActive = true
 
+        var contentViews: [NSView] = [wordmark, cwd]
+        if let toolRow {
+            contentViews.append(toolRow)
+        }
+        contentViews.append(contentsOf: [reason, scope, prompt, scroll, hint])
+
         Dialog.assemble(
             window: window,
             delegate: delegate,
-            contentViews: [wordmark, cwd, reason, scope, prompt, scroll, hint],
+            contentViews: contentViews,
             customSpacings: [
                 (after: wordmark, spacing: Branding.headerSpacing),
                 (after: scope, spacing: 16),

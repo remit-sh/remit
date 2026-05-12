@@ -201,6 +201,30 @@ fn out_of_scope_user_picks_deny_returns_red() {
 }
 
 #[test]
+fn multi_button_prompt_carries_action_through_to_prompter() {
+    // The post-Red dialog needs the Action so the adapter can render the
+    // tool name + arg preview. Asserts `&input.action` reaches the prompter.
+    let store = FakeAgentStore::new().with_scope(id("sess"), scope("do the thing"));
+    let classifier = Classifier::new(FakeLlmClassifier::red("not relevant"));
+    let logger = RecordingLogger::new();
+    let prompter = StubPrompter::new().with_choose(VerdictChoice::Deny);
+    let captured = prompter.last_choose_action();
+    let lock = StubLock::new();
+    let _ = process_action(
+        &input(Agent::root(id("sess"))),
+        &store,
+        &classifier,
+        &logger,
+        &deps(&prompter, &lock),
+        &FakeGuidanceReader::none(),
+    );
+    let captured = captured.borrow();
+    let (kind, args) = captured.as_ref().expect("prompter.choose was called");
+    assert_eq!(kind, "Bash");
+    assert_eq!(args, "ls");
+}
+
+#[test]
 fn out_of_scope_user_picks_allow_returns_green() {
     let store = FakeAgentStore::new().with_scope(id("sess"), scope("do the thing"));
     let classifier = Classifier::new(FakeLlmClassifier::red("not relevant"));

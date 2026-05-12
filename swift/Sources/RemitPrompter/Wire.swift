@@ -33,6 +33,12 @@ struct ChooseRequest: Decodable {
     let scope: String
     let reason: String
     let working_dir: String
+    /// Tool name of the [`Action`] being authorised. Optional so requests from
+    /// older hooks still decode; the dialog omits the row when absent.
+    let tool_name: String?
+    /// Truncated args value the adapter selected via its per-tool allowlist.
+    /// Optional for the same backward-decode reason as `tool_name`.
+    let args_preview: String?
 }
 
 struct UpdateScopeRequest: Decodable {

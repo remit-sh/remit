@@ -7,11 +7,15 @@ import Foundation
 enum Branding {
     static let windowWidth: CGFloat = 560
     static let edgeInset: CGFloat = 24
+    /// Top inset above the wordmark. Smaller than `edgeInset` so the wordmark
+    /// sits closer to the title bar rather than floating in the middle of the
+    /// top padding.
+    static let topInset: CGFloat = 12
     static let stackSpacing: CGFloat = 12
     static let headerSpacing: CGFloat = 6   // wordmark → separator
     static let buttonSpacing: CGFloat = 10
     static let bottomBarHeight: CGFloat = 56  // native sheet-style button bar
-    static let wordmarkSize = NSSize(width: 140, height: 32)
+    static let wordmarkSize = NSSize(width: 110, height: 24)
 
     /// Loads the embedded wordmark. Returns `nil` only if the asset is missing
     /// from the bundle (build-system bug). Dialogs handle nil by omitting the

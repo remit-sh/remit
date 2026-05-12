@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use domain::{PromptError, Prompter, Scope, VerdictChoice};
+use domain::{Action, PromptError, Prompter, Scope, VerdictChoice};
 use serde::{Deserialize, Serialize};
 
 const PROTOCOL_VERSION: u32 = 1;
@@ -28,6 +28,14 @@ const MAX_BYTES: usize = 64 * 1024;
 const MAX_STDERR_IN_ERROR: usize = 4 * 1024;
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
+
+/// Total cap on `args_preview` length. Beyond this, render as head + middle
+/// indicator + tail (see [`truncate_head_tail`]).
+const ARGS_PREVIEW_MAX: usize = 500;
+/// Tail length retained when `args_preview` exceeds [`ARGS_PREVIEW_MAX`] —
+/// preserves the destructive suffix attackers often append after harmless
+/// preamble.
+const ARGS_PREVIEW_TAIL: usize = 80;
 
 #[cfg(test)]
 mod tests;
@@ -94,15 +102,22 @@ impl Prompter for SwiftPrompter {
     fn choose(
         &self,
         scope: &Scope,
+        action: &Action,
         reason: &str,
         working_dir: &std::path::Path,
     ) -> Result<VerdictChoice, PromptError> {
+        let tool_name = action.kind.as_ref();
+        let args_raw = action.args.as_ref();
+        let prettified = prettify_args(args_raw);
+        let args_preview = truncate_head_tail(&prettified, ARGS_PREVIEW_MAX, ARGS_PREVIEW_TAIL);
         let request = ChooseRequest {
             protocol: PROTOCOL_VERSION,
             kind: "choose",
             scope: scope.as_ref(),
             reason,
             working_dir: &working_dir.display().to_string(),
+            tool_name,
+            args_preview: &args_preview,
         };
         let bytes = serde_json::to_vec(&request).map_err(unavailable)?;
         let stdout = self.run(&bytes)?;
@@ -172,6 +187,8 @@ struct ChooseRequest<'a> {
     scope: &'a str,
     reason: &'a str,
     working_dir: &'a str,
+    tool_name: &'a str,
+    args_preview: &'a str,
 }
 
 #[derive(Serialize)]
@@ -307,4 +324,51 @@ fn unavailable<E: std::error::Error + Send + Sync + 'static>(e: E) -> PromptErro
 
 fn unavailable_msg(msg: String) -> PromptError {
     PromptError::Unavailable(msg.into())
+}
+
+/// Strip JSON noise from a tool-input args string for dialog display, without
+/// any per-tool knowledge. Parses `args` as JSON; if it's a non-empty object,
+/// renders `key: value, key: value` with string values unquoted. Nested objects
+/// and arrays stay as compact JSON. Anything that doesn't parse as a non-empty
+/// object falls through as the raw input.
+///
+/// Tool-agnostic by design — security review (#44) flagged that picking a
+/// single "primary" field is gameable by malicious input. Showing *all*
+/// top-level fields removes that vector: nothing can hide behind an
+/// alphabetically-earlier sibling.
+fn prettify_args(args: &str) -> String {
+    let Ok(serde_json::Value::Object(map)) = serde_json::from_str::<serde_json::Value>(args) else {
+        return args.to_string();
+    };
+    if map.is_empty() {
+        return args.to_string();
+    }
+    map.into_iter()
+        .map(|(k, v)| format!("{}: {}", k, render_value(&v)))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Render a JSON value for the prettified args row. Strings come out unquoted;
+/// everything else falls back to compact JSON so structure is preserved for
+/// nested objects/arrays.
+fn render_value(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::String(s) => s.clone(),
+        _ => v.to_string(),
+    }
+}
+
+/// Truncate `s` to at most `max` chars by `char` boundaries. When over the cap,
+/// emit `<head> … [truncated] … <tail>` so the destructive tail of pathological
+/// inputs (long heredocs, base64 blobs with a command appended) remains visible.
+fn truncate_head_tail(s: &str, max: usize, tail: usize) -> String {
+    let total = s.chars().count();
+    if total <= max {
+        return s.to_string();
+    }
+    let head = max.saturating_sub(tail);
+    let head_str: String = s.chars().take(head).collect();
+    let tail_str: String = s.chars().skip(total - tail).collect();
+    format!("{head_str} … [truncated] … {tail_str}")
 }

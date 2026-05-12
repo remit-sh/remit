@@ -23,13 +23,34 @@ private let encoder = JSONEncoder()
         "kind": "choose",
         "scope": "Agenthoff dev work",
         "reason": "touches ~/.ssh",
-        "working_dir": "/Users/x/dev/y"
+        "working_dir": "/Users/x/dev/y",
+        "tool_name": "Bash",
+        "args_preview": "rm -rf /tmp/foo"
     }
     """#
     let req = try decoder.decode(ChooseRequest.self, from: Data(json.utf8))
     #expect(req.scope == "Agenthoff dev work")
     #expect(req.reason == "touches ~/.ssh")
     #expect(req.working_dir == "/Users/x/dev/y")
+    #expect(req.tool_name == "Bash")
+    #expect(req.args_preview == "rm -rf /tmp/foo")
+}
+
+@Test func chooseRequestBackwardCompatWithoutToolFields() throws {
+    // Hooks predating TN-2026-012 don't emit `tool_name` / `args_preview`.
+    // The Swift binary must still decode and render (without the tool row).
+    let json = #"""
+    {
+        "protocol": 1,
+        "kind": "choose",
+        "scope": "s",
+        "reason": "r",
+        "working_dir": "/w"
+    }
+    """#
+    let req = try decoder.decode(ChooseRequest.self, from: Data(json.utf8))
+    #expect(req.tool_name == nil)
+    #expect(req.args_preview == nil)
 }
 
 @Test func chooseRequestIgnoresUnknownKeys() throws {

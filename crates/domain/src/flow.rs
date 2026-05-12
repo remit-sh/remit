@@ -244,7 +244,10 @@ where
     };
 
     logger.log_event(input, &format!("prompt-choose: kind={kind:?}"));
-    let choice = match prompting.prompter.choose(scope, reason, &input.working_dir) {
+    let choice = match prompting
+        .prompter
+        .choose(scope, &input.action, reason, &input.working_dir)
+    {
         Ok(c) => c,
         Err(PromptError::Cancelled) => {
             logger.log_event(input, "user-deny");

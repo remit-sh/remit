@@ -21,8 +21,51 @@ enum Dialog {
         // because we have no `@NSApplicationMain`/`NSApplicationMain()` call.
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
+        // Install a minimal main menu so Cocoa wires Cmd+V/C/X/A/Z/Shift+Z
+        // and Cmd+W via the Edit/Window submenus' key equivalents. Accessory
+        // policy hides the menu bar; only the shortcuts are observable.
+        // Without this, NSTextView's paste:/cut:/copy:/selectAll:/undo:/redo:
+        // responders never fire because Cocoa has nowhere to look up the
+        // shortcut.
+        app.mainMenu = makeMainMenu()
         app.activate(ignoringOtherApps: true)
         return true
+    }
+
+    /// Minimal `NSApp.mainMenu` providing only the standard editing key
+    /// equivalents needed by the scope text input. `target = nil` routes each
+    /// action through the responder chain to the focused NSTextView.
+    @MainActor
+    private static func makeMainMenu() -> NSMenu {
+        let main = NSMenu()
+
+        let editItem = NSMenuItem()
+        editItem.submenu = NSMenu(title: "Edit")
+        for (title, selector, key) in [
+            ("Undo", #selector(UndoManager.undo), "z"),
+            ("Redo", #selector(UndoManager.redo), "Z"),  // Cmd+Shift+Z
+            ("Cut", #selector(NSText.cut(_:)), "x"),
+            ("Copy", #selector(NSText.copy(_:)), "c"),
+            ("Paste", #selector(NSText.paste(_:)), "v"),
+            ("Delete", #selector(NSText.delete(_:)), ""),
+            ("Select All", #selector(NSText.selectAll(_:)), "a"),
+        ] {
+            let item = NSMenuItem(title: title, action: selector, keyEquivalent: key)
+            editItem.submenu?.addItem(item)
+        }
+        main.addItem(editItem)
+
+        let windowItem = NSMenuItem()
+        windowItem.submenu = NSMenu(title: "Window")
+        let close = NSMenuItem(
+            title: "Close",
+            action: #selector(NSWindow.performClose(_:)),
+            keyEquivalent: "w"
+        )
+        windowItem.submenu?.addItem(close)
+        main.addItem(windowItem)
+
+        return main
     }
 
     /// Build a window pre-styled with the Remit chrome. Width is fixed; height
@@ -78,19 +121,31 @@ enum Dialog {
         return field
     }
 
-    /// Wordmark image view (or empty placeholder if asset missing).
+    /// Wordmark image view inside a full-width container so the wordmark
+    /// centres in the dialog regardless of the parent stack's alignment.
+    /// (The shared stack is `.leading` for other rows; setting the container
+    /// to the full content width decouples wordmark centring from that.)
     @MainActor
     static func makeWordmark() -> NSView {
-        let view = NSImageView()
-        view.image = Branding.wordmark()
-        view.imageScaling = .scaleProportionallyDown
-        view.imageAlignment = .alignLeft
-        view.translatesAutoresizingMaskIntoConstraints = false
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        let imageView = NSImageView()
+        imageView.image = Branding.wordmark()
+        imageView.imageScaling = .scaleProportionallyDown
+        imageView.imageAlignment = .alignCenter
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(imageView)
         NSLayoutConstraint.activate([
-            view.widthAnchor.constraint(equalToConstant: Branding.wordmarkSize.width),
-            view.heightAnchor.constraint(equalToConstant: Branding.wordmarkSize.height),
+            container.widthAnchor.constraint(
+                equalToConstant: Branding.windowWidth - 2 * Branding.edgeInset
+            ),
+            container.heightAnchor.constraint(equalToConstant: Branding.wordmarkSize.height),
+            imageView.widthAnchor.constraint(equalToConstant: Branding.wordmarkSize.width),
+            imageView.heightAnchor.constraint(equalToConstant: Branding.wordmarkSize.height),
+            imageView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            imageView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
         ])
-        return view
+        return container
     }
 
     /// Push-button factory. `keyEquivalent` accepts "\r" for default Return
@@ -137,7 +192,7 @@ enum Dialog {
             topStack.setCustomSpacing(spacing.spacing, after: spacing.after)
         }
         topStack.edgeInsets = NSEdgeInsets(
-            top: Branding.edgeInset,
+            top: Branding.topInset,
             left: Branding.edgeInset,
             bottom: Branding.edgeInset,
             right: Branding.edgeInset

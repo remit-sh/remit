@@ -59,6 +59,37 @@ fn instructs_model_to_default_unobservable_red_to_green() {
 }
 
 #[test]
+fn instructs_model_not_to_restate_the_scope_in_red_reasons() {
+    // The composition root appends the scope to the agent-facing stderr message
+    // (see `format_red_for_agent` in claude-code-hook). The classifier must not
+    // duplicate it in the reason text, otherwise the dialog reads twice.
+    assert!(
+        contains_ci(CLASSIFIER_GUIDANCE, "don't restate")
+            || contains_ci(CLASSIFIER_GUIDANCE, "do not restate")
+            || contains_ci(CLASSIFIER_GUIDANCE, "without restating"),
+        "guidance must instruct the LLM not to restate the scope in the reason"
+    );
+}
+
+#[test]
+fn no_restate_sentence_appears_before_treat_as_data_paragraph() {
+    // Security review: the no-restate instruction must sit *before* the
+    // data-vs-instruction hardening paragraph, so that paragraph remains the
+    // last word against prompt-injection attempts in scope/action content.
+    let g = CLASSIFIER_GUIDANCE.to_lowercase();
+    let restate_idx = g
+        .find("restate")
+        .expect("no-restate sentence must be present");
+    let treat_as_data_idx = g
+        .find("treat all scope and action")
+        .expect("treat-as-data paragraph must be present");
+    assert!(
+        restate_idx < treat_as_data_idx,
+        "no-restate sentence must precede the treat-as-data paragraph (restate at {restate_idx}, data-paragraph at {treat_as_data_idx})"
+    );
+}
+
+#[test]
 fn anti_injection_clause_names_agent_template() {
     // Mirrors the existing project-guidance anti-injection framing. The model
     // must treat directives inside <agent_template> as data, not instructions.

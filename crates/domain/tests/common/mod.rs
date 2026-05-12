@@ -8,7 +8,7 @@ use std::path::Path;
 use std::rc::Rc;
 
 use domain::{
-    AgentId, AgentStore, ClassificationContext, ClassificationInput, ClassifierLogger,
+    Action, AgentId, AgentStore, ClassificationContext, ClassificationInput, ClassifierLogger,
     LlmClassifier, LlmClassifierError, LlmDecision, PromptError, PromptLock, Prompter, RedKind,
     Scope, ScopeStoreError, StandingGuidance, StandingGuidanceError, StandingGuidanceReader,
     Verdict, VerdictChoice,
@@ -250,6 +250,9 @@ pub struct StubPrompter {
     choose_calls: Rc<RefCell<usize>>,
     update_calls: Rc<RefCell<usize>>,
     confirm_calls: Rc<RefCell<usize>>,
+    /// Last `Action` passed to `choose`, captured for assertions. Snapshots the
+    /// kind + args by string value since `Action` is non-Clone.
+    last_choose_action: Rc<RefCell<Option<(String, String)>>>,
 }
 
 impl StubPrompter {
@@ -261,7 +264,12 @@ impl StubPrompter {
             choose_calls: Rc::new(RefCell::new(0)),
             update_calls: Rc::new(RefCell::new(0)),
             confirm_calls: Rc::new(RefCell::new(0)),
+            last_choose_action: Rc::new(RefCell::new(None)),
         }
+    }
+
+    pub fn last_choose_action(&self) -> Rc<RefCell<Option<(String, String)>>> {
+        Rc::clone(&self.last_choose_action)
     }
 
     pub fn with_choose(self, choice: VerdictChoice) -> Self {
@@ -331,10 +339,15 @@ impl Prompter for StubPrompter {
     fn choose(
         &self,
         _scope: &Scope,
+        action: &Action,
         _reason: &str,
         _cwd: &Path,
     ) -> Result<VerdictChoice, PromptError> {
         *self.choose_calls.borrow_mut() += 1;
+        *self.last_choose_action.borrow_mut() = Some((
+            action.kind.as_ref().to_string(),
+            action.args.as_ref().to_string(),
+        ));
         self.choose
             .borrow_mut()
             .pop_front()
