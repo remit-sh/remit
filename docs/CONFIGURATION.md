@@ -15,13 +15,17 @@ Empty strings count as unset. Both unset/empty → fail closed: deny, exit 2, st
 
 ```
 <remit_home>/
-├── config.toml          # see schema below
-├── scopes/              # bound agent scopes — one file per agent id
-├── pending-scopes/      # staged scopes for not-yet-started children
-└── remit.log            # append-only audit log
+├── config.toml             # see schema below
+├── agents/                 # all agent-keyed state (one subdir per agent id)
+│   └── <agent-id>/
+│       ├── scope.json      # this agent's bound scope
+│       ├── pending.json    # staged scope for the next child this agent spawns
+│       ├── disabled.marker # disable flag (root agents only; existence = disabled)
+│       └── prompt.lock     # per-root flock used during the verdict prompt
+└── remit.log               # append-only audit log
 ```
 
-Subdirectories are created on first use.
+`agents/` and per-agent subdirs are created lazily on first write.
 
 ## `config.toml`
 

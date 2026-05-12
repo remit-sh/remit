@@ -1,0 +1,11 @@
+[package]
+name = "prompt-lock"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+domain = { path = "../domain" }
+
+[dev-dependencies]
+tempfile = "3"

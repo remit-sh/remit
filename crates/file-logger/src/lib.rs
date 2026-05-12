@@ -101,6 +101,10 @@ impl ClassifierLogger for FileLogger {
         }
         self.log_line(&format!("error: id={agent_id} chain={chain:?}"));
     }
+
+    fn log_event(&self, input: &ClassificationInput, event: &str) {
+        self.log_line(&format!("event: id={} {}", input.agent.id, event));
+    }
 }
 
 fn red_kind_label(kind: &RedKind) -> &'static str {

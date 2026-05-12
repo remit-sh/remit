@@ -1,23 +1,25 @@
 use std::fs;
 
-use domain::test_support::{pending_scope_store_contract, scope_store_contract};
-use domain::{AgentId, ScopeReader, ScopeStoreError};
-use file_scope_store::{FilePendingScopeStore, FileScopeStore};
+use domain::test_support::agent_store_contract;
+use domain::{AgentId, AgentStore, ScopeStoreError};
+use file_scope_store::FileAgentStore;
 use tempfile::tempdir;
 
 #[test]
-fn satisfies_scope_store_contract() {
+fn satisfies_agent_store_contract() {
     let dir = tempdir().unwrap();
     let path = dir.path().to_path_buf();
-    scope_store_contract(|| FileScopeStore::new(path.clone()));
+    agent_store_contract(|| FileAgentStore::new(path.clone()));
 }
 
 #[test]
 fn corrupt_scope_file_is_unavailable_not_absent() {
     let dir = tempdir().unwrap();
-    let store = FileScopeStore::new(dir.path().to_path_buf());
+    let store = FileAgentStore::new(dir.path().to_path_buf());
     let id = AgentId::try_new("sess").unwrap();
-    fs::write(dir.path().join("sess.json"), "").unwrap();
+    let agent_dir = dir.path().join("sess");
+    fs::create_dir_all(&agent_dir).unwrap();
+    fs::write(agent_dir.join("scope.json"), "").unwrap();
     assert!(matches!(
         store.scope_for(&id),
         Err(ScopeStoreError::Unavailable(_))
@@ -25,8 +27,15 @@ fn corrupt_scope_file_is_unavailable_not_absent() {
 }
 
 #[test]
-fn satisfies_pending_scope_store_contract() {
+fn disable_creates_per_agent_dir_lazily() {
     let dir = tempdir().unwrap();
-    let path = dir.path().to_path_buf();
-    pending_scope_store_contract(|| FilePendingScopeStore::new(path.clone()));
+    let store = FileAgentStore::new(dir.path().to_path_buf());
+    let id = AgentId::try_new("sess-2").unwrap();
+    // Read on missing dir is `false`, not an error.
+    assert!(!store.is_disabled(&id).unwrap());
+    // Write creates the per-agent dir + the marker.
+    store.disable(&id).unwrap();
+    assert!(dir.path().join("sess-2").is_dir());
+    assert!(dir.path().join("sess-2").join("disabled.marker").exists());
+    assert!(store.is_disabled(&id).unwrap());
 }

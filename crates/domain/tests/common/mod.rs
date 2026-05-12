@@ -3,56 +3,164 @@
 #![allow(dead_code)]
 
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, VecDeque};
+use std::path::Path;
 use std::rc::Rc;
 
 use domain::{
-    AgentId, ClassificationContext, ClassificationInput, ClassifierLogger, LlmClassifier,
-    LlmClassifierError, LlmDecision, PromptError, RedKind, Scope, ScopePrompter, ScopeReader,
-    ScopeStoreError, ScopeWriter, StandingGuidance, StandingGuidanceError, StandingGuidanceReader,
-    Verdict,
+    AgentId, AgentStore, ClassificationContext, ClassificationInput, ClassifierLogger,
+    LlmClassifier, LlmClassifierError, LlmDecision, PromptError, PromptLock, Prompter, RedKind,
+    Scope, ScopeStoreError, StandingGuidance, StandingGuidanceError, StandingGuidanceReader,
+    Verdict, VerdictChoice,
 };
 
-pub struct FakeReader {
-    map: HashMap<AgentId, Scope>,
-    fail_for: HashSet<AgentId>,
-    fail_all: bool,
+/// Fake [`AgentStore`] for domain tests. Holds in-memory state for scope, pending,
+/// and disable; supports failure-injection knobs per concern.
+///
+/// Build via `FakeAgentStore::new()` and chain `.with_scope(id, scope)` /
+/// `.with_disable_states(...)` / etc. Failure modes are scoped (read-fail,
+/// write-fail, disable-read-fail) so tests can target specific paths.
+pub struct FakeAgentStore {
+    scopes: Rc<RefCell<HashMap<AgentId, Scope>>>,
+    scope_writes: Rc<RefCell<Vec<(AgentId, Scope)>>>,
+    pending: Rc<RefCell<HashMap<AgentId, Scope>>>,
+    disabled: Rc<RefCell<HashMap<AgentId, ()>>>,
+    disable_writes: Rc<RefCell<Vec<AgentId>>>,
+    fail_scope_read: Rc<RefCell<bool>>,
+    fail_scope_write: Rc<RefCell<bool>>,
+    fail_disable_read: Rc<RefCell<bool>>,
+    fail_disable_write: Rc<RefCell<bool>>,
+    /// Optional scripted disable-read responses; pop from the front. Falls back
+    /// to `disabled.contains_key` once exhausted.
+    scripted_disable_reads: Rc<RefCell<VecDeque<bool>>>,
 }
 
-impl FakeReader {
+impl FakeAgentStore {
     pub fn new() -> Self {
         Self {
-            map: HashMap::new(),
-            fail_for: HashSet::new(),
-            fail_all: false,
+            scopes: Rc::new(RefCell::new(HashMap::new())),
+            scope_writes: Rc::new(RefCell::new(Vec::new())),
+            pending: Rc::new(RefCell::new(HashMap::new())),
+            disabled: Rc::new(RefCell::new(HashMap::new())),
+            disable_writes: Rc::new(RefCell::new(Vec::new())),
+            fail_scope_read: Rc::new(RefCell::new(false)),
+            fail_scope_write: Rc::new(RefCell::new(false)),
+            fail_disable_read: Rc::new(RefCell::new(false)),
+            fail_disable_write: Rc::new(RefCell::new(false)),
+            scripted_disable_reads: Rc::new(RefCell::new(VecDeque::new())),
         }
     }
 
-    pub fn with(mut self, id: AgentId, scope: Scope) -> Self {
-        self.map.insert(id, scope);
+    pub fn with_scope(self, id: AgentId, scope: Scope) -> Self {
+        self.scopes.borrow_mut().insert(id, scope);
         self
     }
 
-    pub fn failing() -> Self {
-        Self {
-            map: HashMap::new(),
-            fail_for: HashSet::new(),
-            fail_all: true,
-        }
+    pub fn with_disabled(self, id: AgentId) -> Self {
+        self.disabled.borrow_mut().insert(id, ());
+        self
     }
 
-    pub fn failing_for(mut self, id: AgentId) -> Self {
-        self.fail_for.insert(id);
+    /// Scripted disable-read responses — pop one boolean per call. Used to
+    /// model state that changes between sequential reads (e.g. disable marker
+    /// appearing during a lock wait).
+    pub fn with_scripted_disable_reads(self, values: Vec<bool>) -> Self {
+        *self.scripted_disable_reads.borrow_mut() = values.into_iter().collect();
         self
+    }
+
+    pub fn fail_scope_reads(self) -> Self {
+        *self.fail_scope_read.borrow_mut() = true;
+        self
+    }
+
+    pub fn fail_scope_writes(self) -> Self {
+        *self.fail_scope_write.borrow_mut() = true;
+        self
+    }
+
+    pub fn fail_disable_reads(self) -> Self {
+        *self.fail_disable_read.borrow_mut() = true;
+        self
+    }
+
+    pub fn fail_disable_writes(self) -> Self {
+        *self.fail_disable_write.borrow_mut() = true;
+        self
+    }
+
+    pub fn scope_writes(&self) -> Rc<RefCell<Vec<(AgentId, Scope)>>> {
+        Rc::clone(&self.scope_writes)
+    }
+
+    pub fn disable_writes(&self) -> Rc<RefCell<Vec<AgentId>>> {
+        Rc::clone(&self.disable_writes)
+    }
+
+    /// Shared handle to the scope map — used to mutate state from outside
+    /// `process_action` (e.g. in a `StubLock` side-effect callback).
+    pub fn scopes(&self) -> Rc<RefCell<HashMap<AgentId, Scope>>> {
+        Rc::clone(&self.scopes)
+    }
+
+    pub fn disabled(&self) -> Rc<RefCell<HashMap<AgentId, ()>>> {
+        Rc::clone(&self.disabled)
     }
 }
 
-impl ScopeReader for FakeReader {
+impl AgentStore for FakeAgentStore {
     fn scope_for(&self, agent_id: &AgentId) -> Result<Option<Scope>, ScopeStoreError> {
-        if self.fail_all || self.fail_for.contains(agent_id) {
-            return Err(ScopeStoreError::Unavailable("fake failure".into()));
+        if *self.fail_scope_read.borrow() {
+            return Err(ScopeStoreError::Unavailable(
+                "fake scope read failure".into(),
+            ));
         }
-        Ok(self.map.get(agent_id).cloned())
+        Ok(self.scopes.borrow().get(agent_id).cloned())
+    }
+
+    fn assign_scope(&self, agent_id: &AgentId, scope: Scope) -> Result<(), ScopeStoreError> {
+        if *self.fail_scope_write.borrow() {
+            return Err(ScopeStoreError::Unavailable(
+                "fake scope write failure".into(),
+            ));
+        }
+        self.scope_writes
+            .borrow_mut()
+            .push((agent_id.clone(), scope.clone()));
+        self.scopes.borrow_mut().insert(agent_id.clone(), scope);
+        Ok(())
+    }
+
+    fn set_pending(&self, parent: &AgentId, scope: Scope) -> Result<(), ScopeStoreError> {
+        self.pending.borrow_mut().insert(parent.clone(), scope);
+        Ok(())
+    }
+
+    fn take_pending(&self, parent: &AgentId) -> Result<Option<Scope>, ScopeStoreError> {
+        Ok(self.pending.borrow_mut().remove(parent))
+    }
+
+    fn is_disabled(&self, agent_id: &AgentId) -> Result<bool, ScopeStoreError> {
+        if *self.fail_disable_read.borrow() {
+            return Err(ScopeStoreError::Unavailable(
+                "fake disable read failure".into(),
+            ));
+        }
+        if let Some(scripted) = self.scripted_disable_reads.borrow_mut().pop_front() {
+            return Ok(scripted);
+        }
+        Ok(self.disabled.borrow().contains_key(agent_id))
+    }
+
+    fn disable(&self, agent_id: &AgentId) -> Result<(), ScopeStoreError> {
+        if *self.fail_disable_write.borrow() {
+            return Err(ScopeStoreError::Unavailable(
+                "fake disable write failure".into(),
+            ));
+        }
+        self.disable_writes.borrow_mut().push(agent_id.clone());
+        self.disabled.borrow_mut().insert(agent_id.clone(), ());
+        Ok(())
     }
 }
 
@@ -77,6 +185,7 @@ pub struct RecordingLogger {
     incoming: Rc<RefCell<usize>>,
     outcomes: Rc<RefCell<Vec<LoggedVerdict>>>,
     errors: Rc<RefCell<Vec<String>>>,
+    events: Rc<RefCell<Vec<String>>>,
 }
 
 impl RecordingLogger {
@@ -85,6 +194,7 @@ impl RecordingLogger {
             incoming: Rc::new(RefCell::new(0)),
             outcomes: Rc::new(RefCell::new(Vec::new())),
             errors: Rc::new(RefCell::new(Vec::new())),
+            events: Rc::new(RefCell::new(Vec::new())),
         }
     }
 
@@ -98,6 +208,10 @@ impl RecordingLogger {
 
     pub fn errors(&self) -> Rc<RefCell<Vec<String>>> {
         Rc::clone(&self.errors)
+    }
+
+    pub fn events(&self) -> Rc<RefCell<Vec<String>>> {
+        Rc::clone(&self.events)
     }
 }
 
@@ -120,35 +234,166 @@ impl ClassifierLogger for RecordingLogger {
         }
         self.errors.borrow_mut().push(chain);
     }
+
+    fn log_event(&self, _input: &ClassificationInput, event: &str) {
+        self.events.borrow_mut().push(event.to_string());
+    }
 }
 
-pub enum PromptOutcome {
-    Returns(Scope),
-    Cancelled,
-    Unavailable,
+/// Stub `Prompter` driven by pre-loaded queues — one queue per method. Tests
+/// push the outcomes they expect in order; calls panic if the queue is empty
+/// (signals a missing test setup).
+pub struct StubPrompter {
+    choose: RefCell<VecDeque<Result<VerdictChoice, PromptError>>>,
+    update: RefCell<VecDeque<Result<Scope, PromptError>>>,
+    confirm: RefCell<VecDeque<Result<bool, PromptError>>>,
+    choose_calls: Rc<RefCell<usize>>,
+    update_calls: Rc<RefCell<usize>>,
+    confirm_calls: Rc<RefCell<usize>>,
 }
 
-pub struct FakePrompter {
-    outcome: PromptOutcome,
+impl StubPrompter {
+    pub fn new() -> Self {
+        Self {
+            choose: RefCell::new(VecDeque::new()),
+            update: RefCell::new(VecDeque::new()),
+            confirm: RefCell::new(VecDeque::new()),
+            choose_calls: Rc::new(RefCell::new(0)),
+            update_calls: Rc::new(RefCell::new(0)),
+            confirm_calls: Rc::new(RefCell::new(0)),
+        }
+    }
+
+    pub fn with_choose(self, choice: VerdictChoice) -> Self {
+        self.choose.borrow_mut().push_back(Ok(choice));
+        self
+    }
+
+    pub fn with_choose_cancelled(self) -> Self {
+        self.choose
+            .borrow_mut()
+            .push_back(Err(PromptError::Cancelled));
+        self
+    }
+
+    pub fn with_choose_unavailable(self) -> Self {
+        self.choose
+            .borrow_mut()
+            .push_back(Err(PromptError::Unavailable("fake choose failure".into())));
+        self
+    }
+
+    pub fn with_update_scope(self, scope: Scope) -> Self {
+        self.update.borrow_mut().push_back(Ok(scope));
+        self
+    }
+
+    pub fn with_update_cancelled(self) -> Self {
+        self.update
+            .borrow_mut()
+            .push_back(Err(PromptError::Cancelled));
+        self
+    }
+
+    pub fn with_update_unavailable(self) -> Self {
+        self.update
+            .borrow_mut()
+            .push_back(Err(PromptError::Unavailable("fake update failure".into())));
+        self
+    }
+
+    pub fn with_confirm(self, value: bool) -> Self {
+        self.confirm.borrow_mut().push_back(Ok(value));
+        self
+    }
+
+    pub fn with_confirm_unavailable(self) -> Self {
+        self.confirm
+            .borrow_mut()
+            .push_back(Err(PromptError::Unavailable("fake confirm failure".into())));
+        self
+    }
+
+    pub fn choose_calls(&self) -> Rc<RefCell<usize>> {
+        Rc::clone(&self.choose_calls)
+    }
+
+    pub fn update_calls(&self) -> Rc<RefCell<usize>> {
+        Rc::clone(&self.update_calls)
+    }
+
+    pub fn confirm_calls(&self) -> Rc<RefCell<usize>> {
+        Rc::clone(&self.confirm_calls)
+    }
+}
+
+impl Prompter for StubPrompter {
+    fn choose(
+        &self,
+        _scope: &Scope,
+        _reason: &str,
+        _cwd: &Path,
+    ) -> Result<VerdictChoice, PromptError> {
+        *self.choose_calls.borrow_mut() += 1;
+        self.choose
+            .borrow_mut()
+            .pop_front()
+            .expect("StubPrompter: choose called with empty queue")
+    }
+
+    fn update_scope(
+        &self,
+        _current: Option<&Scope>,
+        _working_dir: &Path,
+    ) -> Result<Scope, PromptError> {
+        *self.update_calls.borrow_mut() += 1;
+        self.update
+            .borrow_mut()
+            .pop_front()
+            .expect("StubPrompter: update_scope called with empty queue")
+    }
+
+    fn confirm_disable(&self) -> Result<bool, PromptError> {
+        *self.confirm_calls.borrow_mut() += 1;
+        self.confirm
+            .borrow_mut()
+            .pop_front()
+            .expect("StubPrompter: confirm_disable called with empty queue")
+    }
+}
+
+/// Stub `PromptLock` returning a unit guard. Default = always-acquire-Ok;
+/// `failing()` builds a stub that returns `PromptError::Unavailable`;
+/// `with_side_effect(F)` runs a closure on each successful acquire — used to
+/// simulate state changes that happen "while we waited" for the lock (e.g.
+/// another owner setting the disable marker or rewriting the scope).
+pub struct StubLock {
+    fail: bool,
+    on_acquire: Option<Box<dyn Fn()>>,
     calls: Rc<RefCell<usize>>,
 }
 
-impl FakePrompter {
-    pub fn returning(scope: Scope) -> Self {
-        Self::new(PromptOutcome::Returns(scope))
-    }
-
-    pub fn cancelled() -> Self {
-        Self::new(PromptOutcome::Cancelled)
-    }
-
-    pub fn unavailable() -> Self {
-        Self::new(PromptOutcome::Unavailable)
-    }
-
-    fn new(outcome: PromptOutcome) -> Self {
+impl StubLock {
+    pub fn new() -> Self {
         Self {
-            outcome,
+            fail: false,
+            on_acquire: None,
+            calls: Rc::new(RefCell::new(0)),
+        }
+    }
+
+    pub fn failing() -> Self {
+        Self {
+            fail: true,
+            on_acquire: None,
+            calls: Rc::new(RefCell::new(0)),
+        }
+    }
+
+    pub fn with_side_effect<F: Fn() + 'static>(f: F) -> Self {
+        Self {
+            fail: false,
+            on_acquire: Some(Box::new(f)),
             calls: Rc::new(RefCell::new(0)),
         }
     }
@@ -158,48 +403,16 @@ impl FakePrompter {
     }
 }
 
-impl ScopePrompter for FakePrompter {
-    fn prompt(&self, _agent_id: &AgentId) -> Result<Scope, PromptError> {
+impl PromptLock for StubLock {
+    type Guard = ();
+    fn acquire(&self, _agent_id: &AgentId) -> Result<(), PromptError> {
         *self.calls.borrow_mut() += 1;
-        match &self.outcome {
-            PromptOutcome::Returns(s) => Ok(s.clone()),
-            PromptOutcome::Cancelled => Err(PromptError::Cancelled),
-            PromptOutcome::Unavailable => Err(PromptError::Unavailable("fake failure".into())),
-        }
-    }
-}
-
-pub struct RecordingWriter {
-    writes: Rc<RefCell<Vec<(AgentId, Scope)>>>,
-    fail: bool,
-}
-
-impl RecordingWriter {
-    pub fn new() -> Self {
-        Self {
-            writes: Rc::new(RefCell::new(Vec::new())),
-            fail: false,
-        }
-    }
-
-    pub fn failing() -> Self {
-        Self {
-            writes: Rc::new(RefCell::new(Vec::new())),
-            fail: true,
-        }
-    }
-
-    pub fn writes(&self) -> Rc<RefCell<Vec<(AgentId, Scope)>>> {
-        Rc::clone(&self.writes)
-    }
-}
-
-impl ScopeWriter for RecordingWriter {
-    fn assign(&self, agent_id: &AgentId, scope: Scope) -> Result<(), ScopeStoreError> {
         if self.fail {
-            return Err(ScopeStoreError::Unavailable("fake writer failure".into()));
+            return Err(PromptError::Unavailable("fake lock failure".into()));
         }
-        self.writes.borrow_mut().push((agent_id.clone(), scope));
+        if let Some(f) = &self.on_acquire {
+            f();
+        }
         Ok(())
     }
 }
@@ -210,31 +423,51 @@ pub enum LlmOutcome {
     Unavailable,
 }
 
+/// Scripted LLM classifier. Each constructor seeds the first outcome; chained
+/// `.then_*` calls append subsequent outcomes. When the queue is exhausted,
+/// the last popped outcome is repeated — so single-call tests can keep using
+/// the simple `green()` / `red(_)` form without configuring a default.
 pub struct FakeLlmClassifier {
-    outcome: LlmOutcome,
+    sequence: RefCell<VecDeque<LlmOutcome>>,
+    last: RefCell<Option<LlmOutcome>>,
     calls: Rc<RefCell<usize>>,
     last_standing: Rc<RefCell<StandingGuidance>>,
 }
 
 impl FakeLlmClassifier {
     pub fn green() -> Self {
-        Self::new(LlmOutcome::Green)
+        Self::seeded(LlmOutcome::Green)
     }
 
     pub fn red(reason: &str) -> Self {
-        Self::new(LlmOutcome::Red(reason.into()))
+        Self::seeded(LlmOutcome::Red(reason.into()))
     }
 
     pub fn unavailable() -> Self {
-        Self::new(LlmOutcome::Unavailable)
+        Self::seeded(LlmOutcome::Unavailable)
     }
 
-    fn new(outcome: LlmOutcome) -> Self {
+    fn seeded(first: LlmOutcome) -> Self {
+        let mut q = VecDeque::new();
+        q.push_back(first);
         Self {
-            outcome,
+            sequence: RefCell::new(q),
+            last: RefCell::new(None),
             calls: Rc::new(RefCell::new(0)),
             last_standing: Rc::new(RefCell::new(StandingGuidance::default())),
         }
+    }
+
+    pub fn then_green(self) -> Self {
+        self.sequence.borrow_mut().push_back(LlmOutcome::Green);
+        self
+    }
+
+    pub fn then_red(self, reason: &str) -> Self {
+        self.sequence
+            .borrow_mut()
+            .push_back(LlmOutcome::Red(reason.into()));
+        self
     }
 
     pub fn call_count(&self) -> Rc<RefCell<usize>> {
@@ -253,7 +486,15 @@ impl LlmClassifier for FakeLlmClassifier {
     fn classify(&self, ctx: &ClassificationContext) -> Result<LlmDecision, LlmClassifierError> {
         *self.calls.borrow_mut() += 1;
         *self.last_standing.borrow_mut() = ctx.standing.clone();
-        match &self.outcome {
+        if let Some(next) = self.sequence.borrow_mut().pop_front() {
+            *self.last.borrow_mut() = Some(next);
+        }
+        match self
+            .last
+            .borrow()
+            .as_ref()
+            .expect("FakeLlmClassifier: classify called with no outcome configured")
+        {
             LlmOutcome::Green => Ok(LlmDecision::Green),
             LlmOutcome::Red(reason) => Ok(LlmDecision::Red {
                 reason: reason.clone(),

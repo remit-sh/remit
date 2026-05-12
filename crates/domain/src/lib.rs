@@ -2,7 +2,6 @@ use std::path::PathBuf;
 
 use nutype::nutype;
 
-/// Contract-test harness for adapters; opt-in via `test-support` feature so it never ships in prod.
 #[cfg(feature = "test-support")]
 pub mod test_support;
 
@@ -30,7 +29,6 @@ pub struct AgentId(String);
 )]
 pub struct AgentType(String);
 
-/// Runtime tool-call id (e.g. Claude Code's `tool_use_id`). Adapter-defined; opaque to the domain.
 #[nutype(derive(Clone, Debug, Display, PartialEq, Eq, Hash, AsRef))]
 pub struct CallId(String);
 
@@ -40,33 +38,25 @@ pub struct ActionKind(String);
 #[nutype(derive(Clone, Debug, Display, PartialEq, Eq, Hash, AsRef))]
 pub struct ActionArgs(String);
 
-/// A tool call to be classified.
-/// Vocab: [Action](../../../docs/UBIQUITOUS_LANGUAGE.md#classification).
 pub struct Action {
     pub call_id: Option<CallId>,
     pub kind: ActionKind,
     pub args: ActionArgs,
 }
 
-/// The agent's task — what it's trying to accomplish. Not an allowlist.
-/// Empty / whitespace-only is rejected; fail-closed at the boundary.
-/// Vocab: [Scope](../../../docs/UBIQUITOUS_LANGUAGE.md#product).
+/// The agent's task. Empty / whitespace-only is rejected at the boundary.
 #[nutype(
     validate(predicate = |s: &str| !s.trim().is_empty()),
     derive(Clone, Debug, Display, PartialEq, Eq, Hash, AsRef)
 )]
 pub struct Scope(String);
 
-/// A scope-bearing runtime instance. `parent_id` is the spawner's identity,
-/// used by adapters to look up pending rows on a child's start hook.
-/// Vocab: [Agent](../../../docs/UBIQUITOUS_LANGUAGE.md#agents).
 pub struct Agent {
     pub id: AgentId,
     pub parent_id: Option<AgentId>,
 }
 
 impl Agent {
-    /// Top-level Agent — no parent. Scope is acquired via prompter.
     pub fn root(id: AgentId) -> Self {
         Self {
             id,
@@ -74,9 +64,8 @@ impl Agent {
         }
     }
 
-    /// Child Agent under a parent. Self-referential parent (id == parent)
-    /// collapses to root — defends against malformed env / payload state.
-    /// Vocab: [Subagent](../../../docs/UBIQUITOUS_LANGUAGE.md#agents).
+    /// Self-referential parent (`id == parent`) collapses to root — defends
+    /// against malformed env / payload state.
     pub fn subagent(id: AgentId, parent: AgentId) -> Self {
         if id == parent {
             Self::root(id)
@@ -93,17 +82,13 @@ impl Agent {
     }
 }
 
-/// Agent + Action + working dir — the unit the [`Classifier`] turns into a [`Verdict`].
-/// Vocab: [Classification input](../../../docs/UBIQUITOUS_LANGUAGE.md#classification).
 pub struct ClassificationInput {
     pub agent: Agent,
     pub action: Action,
     pub working_dir: PathBuf,
 }
 
-/// Classifier output. Green = action serves the [`Scope`]. Red = it doesn't,
-/// and `reason` says why. Only Red carries a [`RedKind`] + reason.
-/// Vocab: [Verdict](../../../docs/UBIQUITOUS_LANGUAGE.md#classification).
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Verdict {
     Green,
     Red { kind: RedKind, reason: String },
@@ -111,65 +96,53 @@ pub enum Verdict {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RedKind {
-    /// Root agent, no scope present, no prompt has been attempted yet.
     NoScopeRoot,
-    /// User dismissed the scope prompt.
     ScopeSetupCancelled,
-    /// Prompter failed (e.g. osascript missing, IO error).
     ScopeSetupUnavailable,
-    /// Subagent reached classification with no bound scope — parent's spawn payload
-    /// was missing the bundled scope, or the staging step failed before the child started.
+    /// Subagent reached classification with no bound scope — parent's spawn
+    /// payload was missing the bundled scope, or staging failed.
     SubagentMissingScope,
-    /// Scope reader or writer reported an error.
     StoreUnavailable,
-    /// LLM classifier judged the action does not serve the scope.
     OutOfScope,
-    /// LLM classifier could not produce a decision (network, parse, auth, etc.). Fail-closed.
+    /// LLM could not produce a decision (network / parse / auth). Fail-closed.
     ClassifierUnavailable,
-    /// [`StandingGuidanceReader`] reported an error (file too large, IO failure,
-    /// invalid UTF-8). Fail-closed: standing guidance is part of the trusted system
-    /// prompt, so we refuse to classify rather than silently drop it.
+    /// [`StandingGuidanceReader`] reported an error (file too large, IO
+    /// failure, invalid UTF-8). Fail-closed: standing guidance is part of the
+    /// trusted system prompt, so we refuse to classify rather than silently
+    /// drop it.
     StandingGuidanceUnavailable,
 }
 
-/// Outbound observability port. Adapters log / surface classification events as they like.
-///
-/// Lifecycle of a single [`process_action`] call:
-/// - [`log_incoming`] — once, when the input arrives.
-/// - [`log_error`] — once, when scope acquisition fails and the error would otherwise be discarded into a Red [`Verdict`].
-/// - [`log_outcome`] — once, with the final [`Verdict`] returned to the caller (after any composition-level transformation).
-///
-/// [`log_incoming`]: ClassifierLogger::log_incoming
-/// [`log_error`]: ClassifierLogger::log_error
-/// [`log_outcome`]: ClassifierLogger::log_outcome
+/// Outbound observability port. Per [`process_action`] call: one
+/// `log_incoming`, one `log_outcome`, plus `log_error` on port failures and
+/// `log_event` for in-flight state transitions (see TN-2026-010 for the event
+/// catalogue).
 pub trait ClassifierLogger {
     fn log_incoming(&self, input: &ClassificationInput);
     fn log_outcome(&self, input: &ClassificationInput, verdict: &Verdict);
     fn log_error(&self, input: &ClassificationInput, error: &(dyn std::error::Error + 'static));
+    fn log_event(&self, input: &ClassificationInput, event: &str);
 }
 
-/// LLM-side classification decision. Adapter-agnostic: the [`Classifier`] maps
-/// this onto [`Verdict`] / [`RedKind`].
 pub enum LlmDecision {
     Green,
     Red { reason: String },
 }
 
-/// Inputs to a single LLM classification: action + scope (both untrusted, treated
-/// as data) plus [`StandingGuidance`] (trusted, system-prompt material). Adapters
-/// compose this into their model-specific request shape — typically by calling
-/// [`compose_trusted_system_prompt`] for the trusted side and appending their own
-/// wire directives. See TN-2026-008.
+/// Inputs to a single LLM classification: action + scope (both untrusted,
+/// treated as data) plus [`StandingGuidance`] (trusted, system-prompt
+/// material). Adapters compose this into their model-specific request shape —
+/// typically by calling [`compose_trusted_system_prompt`] for the trusted side
+/// and appending their own wire directives.
 pub struct ClassificationContext<'a> {
     pub action: &'a Action,
     pub scope: &'a Scope,
     pub standing: &'a StandingGuidance,
 }
 
-/// Judgment substance handed to every [`LlmClassifier`] adapter. Defines what
-/// the firewall is deciding and on what grounds — the *product policy*.
-/// Adapters compose this into their model-specific system prompt and append
-/// any wire-format directives (e.g. "call this tool", "reply with JSON").
+/// Judgment substance handed to every [`LlmClassifier`] adapter — the product
+/// policy. Adapters compose this into their model-specific system prompt and
+/// append any wire-format directives (e.g. "call this tool", "reply with JSON").
 pub const CLASSIFIER_GUIDANCE: &str = "\
 You are a security firewall for an AI coding agent. \
 You will receive a SCOPE (the agent's stated task) and an ACTION (a tool call about to run). \
@@ -205,9 +178,8 @@ Use both together when judging the action.";
 
 /// Compose the trusted side of the LLM system prompt — the firewall framing
 /// plus every populated slot of [`StandingGuidance`]. Adapters call this and
-/// append their model-specific wire directives. Owning this in domain keeps the
-/// product contract (header text, tag names, slot order) in one place: a new
-/// LLM adapter cannot accidentally drift the framing.
+/// append their model-specific wire directives. Owning this in domain keeps
+/// the product contract (header text, tag names, slot order) in one place.
 pub fn compose_trusted_system_prompt(guidance: &StandingGuidance) -> String {
     let mut out = String::with_capacity(CLASSIFIER_GUIDANCE.len() + 256);
     out.push_str(CLASSIFIER_GUIDANCE);
@@ -235,20 +207,19 @@ pub enum LlmClassifierError {
     Unavailable(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
-/// Outbound semantic-firewall port — judges whether an [`Action`] serves a [`Scope`],
-/// shaped by optional project guidance. Implementations are fail-closed at the call
-/// site: any error → Red downstream.
+/// Semantic-firewall port. Any error fails closed (Red) upstream.
 pub trait LlmClassifier {
     fn classify(&self, ctx: &ClassificationContext) -> Result<LlmDecision, LlmClassifierError>;
 }
 
 /// Outbound port that yields the **Standing guidance** for one classification —
 /// the umbrella of trusted policy text fed to the LLM (Project guidance from
-/// `REMIT.md`, plus future per-Agent-type templates and user-level guidance).
-/// Source-agnostic: no paths, no filesystem types in the contract. See TN-2026-008.
+/// `REMIT.md`, plus per-Agent-type templates and future user-level guidance).
+/// Source-agnostic: no paths, no filesystem types in the contract.
 ///
 /// - `Ok(StandingGuidance { project: None, agent_template: None })` → nothing
-///   to load (filesystem walk hit boundary; remote service returned 404; etc.). Not Red.
+///   to load (filesystem walk hit boundary; remote service returned 404; etc.).
+///   Not Red.
 /// - `Ok(_)` → some standing guidance loaded; populated fields contribute to
 ///   the system prompt.
 /// - `Err(Unavailable)` → any read failure. Composition root maps to
@@ -258,15 +229,15 @@ pub trait StandingGuidanceReader {
 }
 
 /// Slots that contribute to the trusted side of the system prompt. Each is
-/// optional; an empty `StandingGuidance` collapses cleanly. New umbrella members
-/// (e.g. agent-template, user-level guidance) get their own slot rather than
-/// reusing an existing one.
+/// optional; an empty `StandingGuidance` collapses cleanly. New umbrella
+/// members (user-level guidance, etc.) get their own slot rather than reusing
+/// an existing one.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct StandingGuidance {
     /// Project-scoped guidance — `REMIT.md` content. See TN-2026-008.
     pub project: Option<String>,
     /// Agent-type-scoped guidance — `.remit/agent-templates/<type>.md` content.
-    /// Reserved slot; populated by TN-2026-009 (#32). Always `None` for now.
+    /// See TN-2026-009.
     pub agent_template: Option<String>,
 }
 
@@ -284,30 +255,23 @@ pub enum ScopeStoreError {
     Unavailable(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
-/// Read a bound [`Scope`] for an [`Agent`].
-/// Fail-closed: `Ok(None)` and `Err(_)` both mean "no usable scope" — emit Red.
-/// Adapters MUST return `Err(Unavailable)` for any non-absent failure
-/// (corrupt payload, IO error, permission denied); only confirmed absence is `Ok(None)`.
-pub trait ScopeReader {
-    fn scope_for(&self, agent_id: &AgentId) -> Result<Option<Scope>, ScopeStoreError>;
-}
-
-/// Bind a [`Scope`] to an [`Agent`].
-pub trait ScopeWriter {
-    fn assign(&self, agent_id: &AgentId, scope: Scope) -> Result<(), ScopeStoreError>;
-}
-
-/// Parent-keyed staging slot for the **bundled scope** of the next child the
-/// parent spawns. Lifecycle: parent's spawn-tool `PreToolUse` → [`set`] →
-/// child's start hook → [`take`] → [`ScopeWriter::assign`] under the child's id.
-/// Single-slot per parent in MVP; FIFO tracked as #20.
-/// Vocab: [Bundled scope](../../../docs/UBIQUITOUS_LANGUAGE.md#agents).
+/// Aggregate port for all [`Agent`]-keyed Remit state: scope, bundled-scope
+/// staging, disable marker. Adapters back this with whatever storage they
+/// like (files, sqlite, IPC).
 ///
-/// [`set`]: PendingScopeStore::set
-/// [`take`]: PendingScopeStore::take
-pub trait PendingScopeStore {
-    fn set(&self, parent: &AgentId, scope: Scope) -> Result<(), ScopeStoreError>;
-    fn take(&self, parent: &AgentId) -> Result<Option<Scope>, ScopeStoreError>;
+/// Fail-closed semantics: `Ok(None)` and `Err(_)` from `scope_for` both mean
+/// "no usable scope" — emit Red. Adapters MUST return `Err(Unavailable)` for
+/// any non-absent failure; only confirmed absence is `Ok(None)`.
+///
+/// `take_pending` is read-and-delete (single-shot). Single-slot per parent in
+/// MVP; FIFO tracked as #20. Disable marker is monotonic (no enable in v1).
+pub trait AgentStore {
+    fn scope_for(&self, agent_id: &AgentId) -> Result<Option<Scope>, ScopeStoreError>;
+    fn assign_scope(&self, agent_id: &AgentId, scope: Scope) -> Result<(), ScopeStoreError>;
+    fn set_pending(&self, parent: &AgentId, scope: Scope) -> Result<(), ScopeStoreError>;
+    fn take_pending(&self, parent: &AgentId) -> Result<Option<Scope>, ScopeStoreError>;
+    fn is_disabled(&self, agent_id: &AgentId) -> Result<bool, ScopeStoreError>;
+    fn disable(&self, agent_id: &AgentId) -> Result<(), ScopeStoreError>;
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -319,128 +283,53 @@ pub enum PromptError {
     Unavailable(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
-/// Ask the user for a [`Scope`] — root sessions only. `Cancelled` is a normal
-/// outcome (distinct from `Unavailable`); composition root maps each to its own [`RedKind`].
-pub trait ScopePrompter {
-    fn prompt(&self, agent_id: &AgentId) -> Result<Scope, PromptError>;
+/// User's decision in response to a Red [`Verdict`] prompt.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VerdictChoice {
+    Deny,
+    Allow,
+    UpdateScope,
+    DisableSession,
 }
 
-#[derive(thiserror::Error, Debug)]
-#[non_exhaustive]
-pub enum AcquireScopeError {
-    #[error("scope store: {0}")]
-    Store(#[from] ScopeStoreError),
-    #[error("prompt: {0}")]
-    Prompt(#[from] PromptError),
+/// User-facing dialogs. `update_scope(None, ...)` is first-time setup;
+/// `Some(scope)` pre-fills with the current scope. `working_dir` is included
+/// in every dialog so the user can identify which session is asking — prompts
+/// may surface long after the user navigated away from the originating terminal.
+pub trait Prompter {
+    fn choose(
+        &self,
+        scope: &Scope,
+        reason: &str,
+        working_dir: &std::path::Path,
+    ) -> Result<VerdictChoice, PromptError>;
+    fn update_scope(
+        &self,
+        current: Option<&Scope>,
+        working_dir: &std::path::Path,
+    ) -> Result<Scope, PromptError>;
+    fn confirm_disable(&self) -> Result<bool, PromptError>;
 }
 
-/// Look up the [`Scope`] bound to this agent's id.
-pub fn resolve_scope<R: ScopeReader>(
-    reader: &R,
-    agent: &Agent,
-) -> Result<Option<Scope>, ScopeStoreError> {
-    reader.scope_for(&agent.id)
+/// Cross-process exclusive lock keyed by a root agent's id. Held during the
+/// prompt flow to serialise parallel hooks under the same root. Adapter owns
+/// the file handle; domain holds an opaque guard whose `Drop` releases.
+pub trait PromptLock {
+    type Guard;
+    fn acquire(&self, agent_id: &AgentId) -> Result<Self::Guard, PromptError>;
 }
 
-/// Resolve the agent's scope, prompting + persisting if absent on a root.
-/// Subagents return `Ok(None)` rather than prompting — their scope must already
-/// have been materialised by the start-event hook.
-pub fn acquire_scope<R, P, W>(
-    reader: &R,
-    prompter: &P,
-    writer: &W,
-    agent: &Agent,
-) -> Result<Option<Scope>, AcquireScopeError>
-where
-    R: ScopeReader,
-    P: ScopePrompter,
-    W: ScopeWriter,
-{
-    if let Some(scope) = resolve_scope(reader, agent)? {
-        return Ok(Some(scope));
-    }
-    if agent.has_parent() {
-        return Ok(None);
-    }
-    match prompter.prompt(&agent.id) {
-        Ok(scope) => {
-            writer.assign(&agent.id, scope.clone())?;
-            Ok(Some(scope))
-        }
-        Err(PromptError::Cancelled) => Ok(None),
-        Err(e @ PromptError::Unavailable(_)) => Err(AcquireScopeError::Prompt(e)),
-    }
+pub struct PromptingDeps<'a, P: Prompter, K: PromptLock> {
+    pub prompter: &'a P,
+    pub lock: &'a K,
 }
 
-/// One host-agnostic step: acquire the agent's scope, fetch project guidance,
-/// then classify the action. Composition roots call this and translate the
-/// resulting [`Verdict`] into their own transport (exit codes, JSON, etc.).
-///
-/// Owns the audit trail: emits exactly one `log_incoming` and one `log_outcome`
-/// with the final Verdict, plus `log_error` when scope acquisition or project
-/// guidance read fails.
-#[allow(clippy::too_many_arguments)] // composition glue: each port is a distinct collaborator
-pub fn process_action<R, P, W, G, L, C>(
-    input: &ClassificationInput,
-    scope_reader: &R,
-    prompter: &P,
-    scope_writer: &W,
-    guidance_reader: &G,
-    classifier: &Classifier<C>,
-    logger: &L,
-) -> Verdict
-where
-    R: ScopeReader,
-    P: ScopePrompter,
-    W: ScopeWriter,
-    G: StandingGuidanceReader,
-    L: ClassifierLogger,
-    C: LlmClassifier,
-{
-    logger.log_incoming(input);
-    let verdict = match acquire_scope(scope_reader, prompter, scope_writer, &input.agent) {
-        Err(e) => {
-            logger.log_error(input, &e);
-            match e {
-                AcquireScopeError::Prompt(pe) => Verdict::Red {
-                    kind: RedKind::ScopeSetupUnavailable,
-                    reason: format!("scope prompt unavailable: {pe}"),
-                },
-                AcquireScopeError::Store(se) => Verdict::Red {
-                    kind: RedKind::StoreUnavailable,
-                    reason: format!("scope store unavailable: {se}"),
-                },
-            }
-        }
-        Ok(scope) => match guidance_reader.read() {
-            Err(e) => {
-                logger.log_error(input, &e);
-                Verdict::Red {
-                    kind: RedKind::StandingGuidanceUnavailable,
-                    reason: format!("standing guidance unavailable: {e}"),
-                }
-            }
-            Ok(guidance) => match classifier.classify(input, scope.as_ref(), &guidance) {
-                Verdict::Red {
-                    kind: RedKind::NoScopeRoot,
-                    ..
-                } => Verdict::Red {
-                    kind: RedKind::ScopeSetupCancelled,
-                    reason: "scope setup cancelled; nothing was set".into(),
-                },
-                v => v,
-            },
-        },
-    };
-    logger.log_outcome(input, &verdict);
-    verdict
-}
+mod flow;
+pub use flow::{process_action, resolve_scope};
 
-/// Maps one [`ClassificationInput`] to one [`Verdict`]. Scope present → delegates
-/// to the [`LlmClassifier`] port for the semantic-firewall decision; scope absent →
-/// Red with the appropriate [`RedKind`]. Adapter errors fail-closed to Red.
-/// Pure — observability is owned by [`process_action`] via [`ClassifierLogger`].
-/// Vocab: [Classifier](../../../docs/UBIQUITOUS_LANGUAGE.md#classification).
+/// Maps one [`ClassificationInput`] to one [`Verdict`]. Scope absent → Red
+/// with the appropriate [`RedKind`]; adapter errors fail-closed to Red. Pure
+/// — observability is owned by [`process_action`].
 pub struct Classifier<C: LlmClassifier> {
     llm: C,
 }
@@ -450,7 +339,6 @@ impl<C: LlmClassifier> Classifier<C> {
         Self { llm }
     }
 
-    /// Classify one action. Always returns either Green or a Red with a typed reason.
     pub fn classify(
         &self,
         input: &ClassificationInput,

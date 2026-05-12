@@ -83,7 +83,9 @@ Post a one-line pointer on the issue: "Plan: `docs/tn/TN-YY.N-<slug>.md`". Never
 
 ## Step 4 — Specialist review
 
-After the plan is written, check for signals that warrant input before coding:
+After the plan is written, run specialist review **before** asking the human anything. Don't ask the human to read the plan first — specialists go first, then the human sees plan + specialist findings together.
+
+Check for signals that warrant specialist input:
 - New abstractions, layer changes, cross-package dependencies, domain model changes → `architect`
 - Auth, permissions, data handling → `security-analyst`
 - Complex async/integration test strategy → `test-coverage-agent`
@@ -112,3 +114,4 @@ The plan commit is small and self-contained. This is correct trunk-based behavio
 - Never write code before the plan is agreed
 - Never begin Large work without a plan file
 - Issue comments are outcome summaries only — not process narration
+- Never ask the human to review the plan before specialist review — specialists run first, then human sees plan + findings together

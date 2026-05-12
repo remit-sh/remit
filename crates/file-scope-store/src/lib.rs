@@ -2,92 +2,116 @@ use std::fs;
 use std::io;
 use std::path::PathBuf;
 
-use domain::{AgentId, PendingScopeStore, Scope, ScopeReader, ScopeStoreError, ScopeWriter};
+use domain::{AgentId, AgentStore, Scope, ScopeStoreError};
 
-/// File-backed bound-scope store: one JSON file per agent id under `dir`.
-/// One row per agent; `assign` overwrites in place.
-pub struct FileScopeStore {
-    dir: PathBuf,
+/// File-backed [`AgentStore`]. Single root directory; per-agent subdirectories
+/// hold a small set of well-known files:
+///
+/// ```text
+/// <agents_dir>/<agent-id>/
+///   scope.json        — bound scope (any agent)
+///   pending.json      — bundled scope staged for next child (parent only)
+///   disabled.marker   — disable flag (root only; existence = disabled)
+/// ```
+///
+/// `prompt.lock` lives in the same per-agent dir but is owned by `FsPromptLock`,
+/// not by this store — see `prompt-lock` crate.
+///
+/// Per-agent dirs are created lazily on first write. Read errors that aren't
+/// `NotFound` map to `ScopeStoreError::Unavailable` (fail-closed upstream).
+pub struct FileAgentStore {
+    agents_dir: PathBuf,
 }
 
-impl FileScopeStore {
-    pub fn new(dir: PathBuf) -> Self {
-        Self { dir }
+impl FileAgentStore {
+    pub fn new(agents_dir: PathBuf) -> Self {
+        Self { agents_dir }
     }
 
-    fn path_for(&self, id: &AgentId) -> PathBuf {
-        self.dir.join(format!("{id}.json"))
+    fn agent_dir(&self, id: &AgentId) -> PathBuf {
+        self.agents_dir.join(id.as_ref())
+    }
+
+    fn scope_path(&self, id: &AgentId) -> PathBuf {
+        self.agent_dir(id).join("scope.json")
+    }
+
+    fn pending_path(&self, parent: &AgentId) -> PathBuf {
+        self.agent_dir(parent).join("pending.json")
+    }
+
+    fn disabled_path(&self, id: &AgentId) -> PathBuf {
+        self.agent_dir(id).join("disabled.marker")
     }
 }
 
-impl ScopeReader for FileScopeStore {
+fn read_scope_json(path: &std::path::Path) -> Result<Option<Scope>, ScopeStoreError> {
+    match fs::read_to_string(path) {
+        Ok(content) => {
+            let inner: String = serde_json::from_str(&content)
+                .map_err(|e| ScopeStoreError::Unavailable(Box::new(e)))?;
+            let scope =
+                Scope::try_new(inner).map_err(|e| ScopeStoreError::Unavailable(Box::new(e)))?;
+            Ok(Some(scope))
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(ScopeStoreError::Unavailable(Box::new(e))),
+    }
+}
+
+fn write_scope_json(path: &std::path::Path, scope: Scope) -> Result<(), ScopeStoreError> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| ScopeStoreError::Unavailable(Box::new(e)))?;
+    }
+    let inner: String = scope.into_inner();
+    let json =
+        serde_json::to_string(&inner).map_err(|e| ScopeStoreError::Unavailable(Box::new(e)))?;
+    fs::write(path, json).map_err(|e| ScopeStoreError::Unavailable(Box::new(e)))?;
+    Ok(())
+}
+
+impl AgentStore for FileAgentStore {
     fn scope_for(&self, agent_id: &AgentId) -> Result<Option<Scope>, ScopeStoreError> {
-        match fs::read_to_string(self.path_for(agent_id)) {
-            Ok(content) => {
-                let inner: String = serde_json::from_str(&content)
-                    .map_err(|e| ScopeStoreError::Unavailable(Box::new(e)))?;
-                let scope =
-                    Scope::try_new(inner).map_err(|e| ScopeStoreError::Unavailable(Box::new(e)))?;
-                Ok(Some(scope))
-            }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        read_scope_json(&self.scope_path(agent_id))
+    }
+
+    fn assign_scope(&self, agent_id: &AgentId, scope: Scope) -> Result<(), ScopeStoreError> {
+        write_scope_json(&self.scope_path(agent_id), scope)
+    }
+
+    fn set_pending(&self, parent: &AgentId, scope: Scope) -> Result<(), ScopeStoreError> {
+        write_scope_json(&self.pending_path(parent), scope)
+    }
+
+    fn take_pending(&self, parent: &AgentId) -> Result<Option<Scope>, ScopeStoreError> {
+        let path = self.pending_path(parent);
+        let scope = read_scope_json(&path)?;
+        if scope.is_some() {
+            // Best-effort delete — if removal fails the row may be re-claimed
+            // by a subsequent take, but the assigned scope under the child id
+            // still wins downstream.
+            let _ = fs::remove_file(&path);
+        }
+        Ok(scope)
+    }
+
+    fn is_disabled(&self, agent_id: &AgentId) -> Result<bool, ScopeStoreError> {
+        match fs::metadata(self.disabled_path(agent_id)) {
+            Ok(_) => Ok(true),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
             Err(e) => Err(ScopeStoreError::Unavailable(Box::new(e))),
         }
     }
-}
 
-impl ScopeWriter for FileScopeStore {
-    fn assign(&self, agent_id: &AgentId, scope: Scope) -> Result<(), ScopeStoreError> {
-        fs::create_dir_all(&self.dir).map_err(|e| ScopeStoreError::Unavailable(Box::new(e)))?;
-        let inner: String = scope.into_inner();
-        let json =
-            serde_json::to_string(&inner).map_err(|e| ScopeStoreError::Unavailable(Box::new(e)))?;
-        fs::write(self.path_for(agent_id), json)
+    fn disable(&self, agent_id: &AgentId) -> Result<(), ScopeStoreError> {
+        fs::create_dir_all(self.agent_dir(agent_id))
+            .map_err(|e| ScopeStoreError::Unavailable(Box::new(e)))?;
+        fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(self.disabled_path(agent_id))
             .map_err(|e| ScopeStoreError::Unavailable(Box::new(e)))?;
         Ok(())
-    }
-}
-
-/// File-backed pending-scope staging: same JSON-per-key shape as [`FileScopeStore`],
-/// but `take` deletes after reading. Single-slot per parent in MVP (#20 tracks FIFO).
-pub struct FilePendingScopeStore {
-    dir: PathBuf,
-}
-
-impl FilePendingScopeStore {
-    pub fn new(dir: PathBuf) -> Self {
-        Self { dir }
-    }
-
-    fn path_for(&self, parent: &AgentId) -> PathBuf {
-        self.dir.join(format!("{parent}.json"))
-    }
-}
-
-impl PendingScopeStore for FilePendingScopeStore {
-    fn set(&self, parent: &AgentId, scope: Scope) -> Result<(), ScopeStoreError> {
-        fs::create_dir_all(&self.dir).map_err(|e| ScopeStoreError::Unavailable(Box::new(e)))?;
-        let inner: String = scope.into_inner();
-        let json =
-            serde_json::to_string(&inner).map_err(|e| ScopeStoreError::Unavailable(Box::new(e)))?;
-        fs::write(self.path_for(parent), json)
-            .map_err(|e| ScopeStoreError::Unavailable(Box::new(e)))?;
-        Ok(())
-    }
-
-    fn take(&self, parent: &AgentId) -> Result<Option<Scope>, ScopeStoreError> {
-        let path = self.path_for(parent);
-        let content = match fs::read_to_string(&path) {
-            Ok(c) => c,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(ScopeStoreError::Unavailable(Box::new(e))),
-        };
-        let inner: String = serde_json::from_str(&content)
-            .map_err(|e| ScopeStoreError::Unavailable(Box::new(e)))?;
-        let scope = Scope::try_new(inner).map_err(|e| ScopeStoreError::Unavailable(Box::new(e)))?;
-        // Best-effort delete — if removal fails the row may be re-claimed by a
-        // subsequent take, but the assigned scope under the child id still wins.
-        let _ = fs::remove_file(&path);
-        Ok(Some(scope))
     }
 }

@@ -4,13 +4,14 @@ use std::path::PathBuf;
 
 use anthropic_classifier::AnthropicClassifier;
 use domain::{
-    Action, ActionArgs, ActionKind, Agent, AgentId, AgentType, CallId, ClassificationInput,
-    Classifier, PendingScopeStore, Scope, Verdict, process_action,
+    Action, ActionArgs, ActionKind, Agent, AgentId, AgentStore, AgentType, CallId,
+    ClassificationInput, Classifier, PromptingDeps, Scope, Verdict, process_action,
 };
 use file_logger::FileLogger;
-use file_scope_store::{FilePendingScopeStore, FileScopeStore};
+use file_scope_store::FileAgentStore;
 use file_standing_guidance::FileStandingGuidanceReader;
-use osascript_prompter::OsascriptPrompter;
+use prompt_lock::FsPromptLock;
+use swift_prompter::SwiftPrompter;
 
 #[cfg(test)]
 mod tests;
@@ -70,8 +71,7 @@ struct SessionStartPayload {
 
 fn main() {
     let cfg = fail_closed("config", remit_config::load());
-    let scope_dir = fail_closed("scope dir", remit_config::scope_dir());
-    let pending_dir = fail_closed("pending scope dir", remit_config::pending_scope_dir());
+    let agents_dir = fail_closed("agents dir", remit_config::agents_dir());
 
     let log_path = fail_closed("log path", remit_config::log_path());
     let logger = FileLogger::new(log_path, cfg.audit_markers());
@@ -89,15 +89,24 @@ fn main() {
 
     logger.log_line(&format!("hook-event: {event}"));
 
-    let scope_store = FileScopeStore::new(scope_dir);
-    let pending_store = FilePendingScopeStore::new(pending_dir);
+    let agent_store = FileAgentStore::new(agents_dir.clone());
+    let prompt_lock = FsPromptLock::new(agents_dir);
+    let prompter = SwiftPrompter::new();
 
     match event.as_str() {
         "PreToolUse" => {
             let payload: PreToolUsePayload =
                 fail_closed("parse PreToolUse", serde_json::from_value(raw_payload));
             let llm = build_llm_classifier(&cfg);
-            handle_pre_tool_use(payload, &cfg, &scope_store, &pending_store, &logger, llm);
+            handle_pre_tool_use(
+                payload,
+                &cfg,
+                &agent_store,
+                &prompt_lock,
+                &prompter,
+                &logger,
+                llm,
+            );
         }
         "SubagentStart" => {
             if let Ok(payload) = serde_json::from_value::<SubagentStartPayload>(raw_payload) {
@@ -107,14 +116,7 @@ fn main() {
                 );
                 let child =
                     fail_closed("SubagentStart agent id", AgentId::try_new(payload.agent_id));
-                claim_and_assign(
-                    &pending_store,
-                    &scope_store,
-                    &parent,
-                    &child,
-                    "SubagentStart",
-                    &logger,
-                );
+                claim_and_assign(&agent_store, &parent, &child, "SubagentStart", &logger);
             }
         }
         "SessionStart" => {
@@ -124,14 +126,7 @@ fn main() {
                     AgentId::try_new(payload.session_id),
                 );
                 if let Some(parent) = parent_from_env(&child) {
-                    claim_and_assign(
-                        &pending_store,
-                        &scope_store,
-                        &parent,
-                        &child,
-                        "SessionStart",
-                        &logger,
-                    );
+                    claim_and_assign(&agent_store, &parent, &child, "SessionStart", &logger);
                 }
                 // No env var → root session. Nothing to claim; root prompts via PreToolUse.
             }
@@ -144,8 +139,9 @@ fn main() {
 fn handle_pre_tool_use(
     payload: PreToolUsePayload,
     cfg: &remit_config::RemitConfig,
-    scope_store: &FileScopeStore,
-    pending_store: &FilePendingScopeStore,
+    agent_store: &FileAgentStore,
+    prompt_lock: &FsPromptLock,
+    prompter: &SwiftPrompter,
     logger: &FileLogger,
     llm: AnthropicClassifier,
 ) {
@@ -159,7 +155,7 @@ fn handle_pre_tool_use(
     // child's start hook can claim it. The spawn call itself still falls through
     // to classification under the parent's own scope.
     if let Some(text) = bundled_scope_from(&payload.tool_name, &payload.tool_input) {
-        stage_pending(&payload_session, text, pending_store, logger);
+        stage_pending(&payload_session, text, agent_store, logger);
     }
 
     // Drop agent-controlled narration keys before the classifier sees the input.
@@ -200,17 +196,19 @@ fn handle_pre_tool_use(
         ));
     }
 
-    let prompter = OsascriptPrompter::new();
     let guidance_reader = FileStandingGuidanceReader::new(cwd).with_agent_type(agent_type);
     let classifier = Classifier::new(llm);
+    let prompting = PromptingDeps {
+        prompter,
+        lock: prompt_lock,
+    };
     let verdict = process_action(
         &classifier_input,
-        scope_store,
-        &prompter,
-        scope_store,
-        &guidance_reader,
+        agent_store,
         &classifier,
         logger,
+        &prompting,
+        &guidance_reader,
     );
 
     match verdict {
@@ -226,12 +224,12 @@ fn handle_pre_tool_use(
 }
 
 /// Record the bundled scope under the parent's id, to be claimed by the child's
-/// start hook. Empty-after-trim text is rejected at the boundary; pending-store
+/// start hook. Empty-after-trim text is rejected at the boundary; store
 /// failure exits 2 so the parent's spawn doesn't proceed thinking it succeeded.
 fn stage_pending(
     parent: &AgentId,
     scope_text: String,
-    pending_store: &FilePendingScopeStore,
+    agent_store: &FileAgentStore,
     logger: &FileLogger,
 ) {
     let scope = match Scope::try_new(&scope_text) {
@@ -246,7 +244,7 @@ fn stage_pending(
             return;
         }
     };
-    match pending_store.set(parent, scope) {
+    match agent_store.set_pending(parent, scope) {
         Ok(()) => logger.log_line(&format!(
             "stage-pending: parent={parent} scope={scope_text:?}"
         )),
@@ -260,22 +258,18 @@ fn stage_pending(
 }
 
 /// Claim the parent's pending row and bind the scope to the child's id.
-/// Hit → `ScopeWriter::assign` under the child; miss → child will be blocked at
-/// first tool call. Exits 2 if `assign` fails after `take` consumed the row.
-#[allow(clippy::too_many_arguments)] // glue function in the composition root
+/// Hit → `assign_scope` under the child; miss → child will be blocked at
+/// first tool call. Exits 2 if assign fails after `take_pending` consumed the row.
 fn claim_and_assign(
-    pending_store: &FilePendingScopeStore,
-    scope_store: &FileScopeStore,
+    agent_store: &FileAgentStore,
     parent: &AgentId,
     child: &AgentId,
     hook: &str,
     logger: &FileLogger,
 ) {
-    use domain::ScopeWriter;
-
-    let claim = pending_store.take(parent);
+    let claim = agent_store.take_pending(parent);
     let outcome = match &claim {
-        Ok(Some(scope)) => match scope_store.assign(child, scope.clone()) {
+        Ok(Some(scope)) => match agent_store.assign_scope(child, scope.clone()) {
             Ok(()) => format!("hit scope={:?}", scope.as_ref()),
             Err(e) => format!("hit-but-assign-failed scope={:?} error={e}", scope.as_ref()),
         },

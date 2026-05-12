@@ -7,6 +7,8 @@
 | **Remit** | The product name. | — |
 | **Scope** | The agent's task — what it's trying to accomplish (e.g. "develop the front-end history component"). Not an allowlist. | Remit, task, intent, permissions |
 | **Semantic firewall** | Relevance check between **Scope** and **Action**. | Guardrail, policy engine |
+| **Update scope** | The user-driven action of replacing the current **Scope** mid-session, via the prompt that follows a Red **Verdict**. | Edit, modify scope |
+| **Disable session** | The user-driven action of switching the firewall off for the remainder of a Claude Code session. | Bypass, mute |
 
 ## Agents
 

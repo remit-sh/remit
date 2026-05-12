@@ -145,20 +145,18 @@ fn contains_secret(cfg: &RemitConfig) -> bool {
     cfg.classifier.anthropic.api_key.is_some()
 }
 
-/// Directory where bound agent scopes are persisted: `<remit_home>/scopes/`.
-pub fn scope_dir() -> Result<PathBuf, ConfigError> {
-    Ok(remit_home()?.join("scopes"))
-}
-
-/// Directory where parent-keyed pending scopes (staged for the next-spawned
-/// child) are persisted: `<remit_home>/pending-scopes/`.
-pub fn pending_scope_dir() -> Result<PathBuf, ConfigError> {
-    Ok(remit_home()?.join("pending-scopes"))
-}
-
 /// Path to the audit log: `<remit_home>/remit.log`.
 pub fn log_path() -> Result<PathBuf, ConfigError> {
     Ok(remit_home()?.join("remit.log"))
+}
+
+/// Single root for all agent-keyed state: `<remit_home>/agents/`. Per-agent
+/// state lives under `<agents_dir>/<agent-id>/` as a small set of files
+/// (`scope.json`, `pending.json`, `disabled.marker`, `prompt.lock`).
+/// Adapters that operate on agent state (`FileAgentStore`, `FsPromptLock`)
+/// take this directory and resolve their files inside it.
+pub fn agents_dir() -> Result<PathBuf, ConfigError> {
+    Ok(remit_home()?.join("agents"))
 }
 
 /// Resolve the Remit home directory: `$REMIT_HOME` if set and non-empty,
