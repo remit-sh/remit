@@ -9,18 +9,18 @@ tags: [cli, observability, ndjson, query-port, file-classification-log]
 
 # TN-2026-012: `remit` CLI with `remit logs`
 
-> `remit` binary queries every classification post-hoc via a domain port. Filters: agent, root, verdict, since, tool. Foundation for the SQLite migration in #38.
+> `remit` binary queries every classification post-hoc via a domain port. Filters: agent, root, verdict, since, action. Foundation for the SQLite migration in #38.
 
 ## Problem
 
 - No way to inspect classifications after the fact. Only audit surface is `~/.remit/remit.log`, free-text, grep-only.
 - Hook lifecycle, classification, and ad-hoc events interleaved in one stream.
 - `FileLogger` docstring claims NDJSON but emits prose lines (`incoming: id=sess kind=Bash args=ls`). Drift flagged in TN-2026-006.
-- Tool input payloads logged via `args=...`. CLAUDE.md says they shouldn't — pre-existing security drift.
+- Action args logged via `args=...`. CLAUDE.md says they shouldn't — pre-existing security drift.
 
 ## Outcome
 
-- `remit logs [--agent ID] [--root ID] [--verdict green|red] [--since 10m] [--tool Bash] [--limit N] [--show-args]` returns matching classifications.
+- `remit logs [--agent ID] [--root ID] [--verdict green|red] [--since 10m] [--action Bash] [--limit N] [--show-args]` returns matching classifications.
 - Domain owns a single query port; adapters interchangeable (NDJSON file today, SQLite tomorrow per #38).
 - Logger output is real NDJSON.
 - `debug_mode = true` in config turns on full-payload capture (`args` on `incoming` records). Off by default — keeps the durable record narrow per CLAUDE.md security policy.
@@ -50,7 +50,7 @@ pub struct LogQuery {
     pub root: Option<AgentId>,
     pub verdict: Option<VerdictFilter>,
     pub since: Option<SystemTime>,
-    pub tool: Option<ActionKind>,
+    pub action: Option<ActionKind>,
     pub limit: Option<usize>,
 }
 
@@ -62,12 +62,12 @@ pub struct ClassificationRecord {
     pub timestamp: SystemTime,
     pub agent_id: AgentId,
     pub parent_id: Option<AgentId>,
-    pub tool: ActionKind,
+    pub action: ActionKind,
     pub verdict: Verdict,
     pub working_dir: PathBuf,
-    /// Opaque, adapter-stringified tool input. `Some` only when the record was
-    /// captured under `debug_mode`. Domain treats this as data — no parsing,
-    /// no semantic interpretation.
+    /// Opaque, adapter-stringified action args. `Some` only when the record
+    /// was captured under `debug_mode`. Domain treats this as data — no
+    /// parsing, no semantic interpretation.
     pub args: Option<ActionArgs>,
 }
 
@@ -85,14 +85,14 @@ pub trait ClassificationLog {
 
 - `SystemTime` and `PathBuf` are std; allowed in domain.
 - `Verdict` already carries Green/Red + `RedKind` + `reason`. No duplication.
-- No `args` field. Tool input payloads stay out of the durable record (closes CLAUDE.md drift).
+- No `args` field by default. Action args stay out of the durable record (closes CLAUDE.md drift); see Debug mode for opt-in capture.
 - Single `Unavailable` error variant. Missing log is **not** an error — adapter returns `Ok(vec![])`. Read-side fail-closed (matching exit codes etc.) belongs to the caller; the port describes "can this log be read?", not "should the action proceed?".
 - Returned `Vec` is fine for v1. Streaming iterator deferred until log volume needs it.
 - NDJSON serde structs and time-crate types live in the adapter crate, never in domain.
 
 ### Root resolution
 
-`--root R` returns rows whose `agent_id` is in descendants(R), inclusive. Descendant set built from the records: the adapter parses **both `incoming` and `outcome`** records to construct a child→parent map (covers the case where a parent agent spawns a child before issuing any tool calls of its own), then filters `outcome` records by membership. No new persistent state.
+`--root R` returns rows whose `agent_id` is in descendants(R), inclusive. Descendant set built from the records: the adapter parses **both `incoming` and `outcome`** records to construct a child→parent map (covers the case where a parent agent spawns a child before issuing any actions of its own), then filters `outcome` records by membership. No new persistent state.
 
 ### NDJSON record shape
 
@@ -100,9 +100,9 @@ One JSON object per line. `event` field discriminates:
 
 ```jsonc
 // classification (one per process_action call)
-{ "ts": "2026-05-12T10:14:33.421Z", "event": "incoming", "agent_id": "...", "parent_id": "...", "call_id": "...", "tool": "Bash", "working_dir": "/path" }
-{ "ts": "2026-05-12T10:14:34.118Z", "event": "outcome",  "agent_id": "...", "parent_id": "...", "tool": "Bash",  "working_dir": "/path", "verdict": "green" }
-{ "ts": "...", "event": "outcome", "agent_id": "...", "parent_id": "...", "tool": "Write", "working_dir": "/path", "verdict": "red", "red_kind": "OutOfScope", "reason": "writes outside scope" }
+{ "ts": "2026-05-12T10:14:33.421Z", "event": "incoming", "agent_id": "...", "parent_id": "...", "call_id": "...", "action": "Bash", "working_dir": "/path" }
+{ "ts": "2026-05-12T10:14:34.118Z", "event": "outcome",  "agent_id": "...", "parent_id": "...", "action": "Bash",  "working_dir": "/path", "verdict": "green" }
+{ "ts": "...", "event": "outcome", "agent_id": "...", "parent_id": "...", "action": "Write", "working_dir": "/path", "verdict": "red", "red_kind": "OutOfScope", "reason": "writes outside scope" }
 { "ts": "...", "event": "error",   "agent_id": "...", "chain": "outer: inner: disk full" }
 
 // hook lifecycle (composition root)
@@ -111,14 +111,14 @@ One JSON object per line. `event` field discriminates:
 { "ts": "...", "event": "claim_pending",  "hook": "SubagentStart", "parent": "...", "child": "...", "outcome": "hit" }
 
 // with debug_mode = true, incoming AND outcome records carry args:
-{ "ts": "...", "event": "incoming", "agent_id": "...", "tool": "Bash", "args": "{\"command\":\"ls -la ~/.ssh\"}", "markers": ["debug-mode"] }
-{ "ts": "...", "event": "outcome",  "agent_id": "...", "tool": "Bash", "args": "{\"command\":\"ls -la ~/.ssh\"}", "verdict": "red", "red_kind": "OutOfScope", "reason": "...", "markers": ["debug-mode"] }
+{ "ts": "...", "event": "incoming", "agent_id": "...", "action": "Bash", "args": "{\"command\":\"ls -la ~/.ssh\"}", "markers": ["debug-mode"] }
+{ "ts": "...", "event": "outcome",  "agent_id": "...", "action": "Bash", "args": "{\"command\":\"ls -la ~/.ssh\"}", "verdict": "red", "red_kind": "OutOfScope", "reason": "...", "markers": ["debug-mode"] }
 ```
 
 - `ts` is RFC 3339 UTC, ms precision, always first key.
 - Unknown `event` types tolerated by readers; `remit logs` filters to `outcome`.
 - Audit markers (`dev-bypass-active`, `debug-mode`) move from line prefix to a `markers: [...]` field on every record.
-- `outcome` records carry every field needed for a `ClassificationRecord` (agent_id, parent_id, tool, working_dir, verdict). Reader walks outcomes only; incoming + error + hook lines are decorative for the CLI. Cost: wire duplication. Benefit: one-line-per-record scan, no pairing.
+- `outcome` records carry every field needed for a `ClassificationRecord` (agent_id, parent_id, action, working_dir, verdict). Reader walks outcomes only; incoming + error + hook lines are decorative for the CLI. Cost: wire duplication. Benefit: one-line-per-record scan, no pairing.
 
 ### Debug mode
 
@@ -128,7 +128,7 @@ New config field (`remit-config`):
 debug_mode = true   # default: false
 ```
 
-- When **off** (default): records carry no tool input payloads. Matches CLAUDE.md ("Sensitive content … never logged").
+- When **off** (default): records carry no action args. Matches CLAUDE.md ("Sensitive content … never logged").
 - When **on**: both `incoming` and `outcome` records carry the full (narration-stripped) `args` JSON, stringified. Outcome too — so `remit logs --show-args` works from a one-pass outcome scan. Logger receives the flag at construction (`FileLogger::new(..., debug_mode)`) and the `ClassifierLogger` impl emits or omits the field accordingly.
 - `"debug-mode"` appears in `markers` on every record captured under debug mode — audit trail shows when verbose capture was active.
 - Composition root logs a one-line stderr warning at startup when `debug_mode = true`, mirroring the `dev_bypass` pattern. Forensic transparency: the user is reminded that sensitive content is now being persisted.
@@ -173,9 +173,9 @@ Composition pattern matches `claude-code-hook`: `main.rs` wires `RemitConfig::lo
 Output (v1): tab-separated columns:
 
 ```
-TS                     AGENT      TOOL       VERDICT   REASON
-2026-05-12T10:14:34Z   sess-abc   Bash       green
-2026-05-12T10:14:35Z   sess-abc   Write      red       writes outside scope
+TS                     AGENT       ACTION     VERDICT   REASON
+2026-05-12T10:14:34Z   agent-abc   Bash       green
+2026-05-12T10:14:35Z   agent-abc   Write      red       writes outside scope
 ```
 
 `--json` deferred.
@@ -188,7 +188,7 @@ TS                     AGENT      TOOL       VERDICT   REASON
 | `--root <ID>` | string | Parsed as `AgentId` |
 | `--verdict <green\|red>` | enum | clap value-parser |
 | `--since <DUR>` | duration | `10m`, `1h30m`, `30s` |
-| `--tool <NAME>` | string | Parsed as `ActionKind` |
+| `--action <NAME>` | string | Parsed as `ActionKind` |
 | `--limit <N>` | usize | Default 100; `0` = unlimited. Returns the **most recent** N records. |
 | `--show-args` | flag | Display `args` (or note when absent) for matching records. Off by default. |
 
@@ -218,7 +218,7 @@ TS                     AGENT      TOOL       VERDICT   REASON
 **Landing 2b — typed helpers replace `log_line`**
 9. Add `log_hook_event`, `log_stage_pending`, `log_claim_pending` (etc.) on `FileLogger`. Each emits an NDJSON record with the right `event` discriminator.
 10. Update `claude-code-hook/src/main.rs` to call them; remove `log_line` from the public API.
-11. Default-mode records never carry tool input payloads. Closes CLAUDE.md security drift.
+11. Default-mode records never carry action args. Closes CLAUDE.md security drift.
 
 **Landing 3 — query port (domain)**
 12. Add `ClassificationLog`, `LogQuery`, `ClassificationRecord` (with `args: Option<ActionArgs>`), `VerdictFilter`, `LogQueryError` to `crates/domain/src/lib.rs`.
@@ -243,8 +243,8 @@ TDD throughout.
 
 ### Domain port (`crates/domain/tests/log_query.rs`)
 - Empty query returns all.
-- Each filter narrows correctly: agent, root (descendant walk), verdict, since, tool, limit.
-- Filters compose (verdict=red AND tool=Write).
+- Each filter narrows correctly: agent, root (descendant walk), verdict, since, action, limit.
+- Filters compose (verdict=red AND action=Write).
 - Limit applied after filtering.
 - `since` boundary: strictly ≥.
 
