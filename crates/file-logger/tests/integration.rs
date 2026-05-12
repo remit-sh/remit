@@ -20,6 +20,32 @@ fn input() -> ClassificationInput {
     }
 }
 
+/// Strip the leading RFC 3339 UTC timestamp + space from a log line, after
+/// asserting the prefix is well-formed.
+fn strip_timestamp(line: &str) -> &str {
+    let (timestamp, rest) = line
+        .split_once(' ')
+        .unwrap_or_else(|| panic!("log line has no timestamp/body separator: {line:?}"));
+    assert_eq!(
+        timestamp.len(),
+        24,
+        "expected 24-char RFC 3339 ms-precision timestamp, got {timestamp:?}"
+    );
+    let bytes = timestamp.as_bytes();
+    for (i, b) in bytes.iter().enumerate() {
+        let ok = match i {
+            4 | 7 => *b == b'-',
+            10 => *b == b'T',
+            13 | 16 => *b == b':',
+            19 => *b == b'.',
+            23 => *b == b'Z',
+            _ => b.is_ascii_digit(),
+        };
+        assert!(ok, "timestamp char at index {i} unexpected: {timestamp:?}");
+    }
+    rest
+}
+
 #[test]
 fn log_incoming_writes_one_line() {
     let dir = tempdir().unwrap();
@@ -31,9 +57,10 @@ fn log_incoming_writes_one_line() {
     let content = fs::read_to_string(&log).unwrap();
     let lines: Vec<&str> = content.lines().collect();
     assert_eq!(lines.len(), 1);
-    assert!(lines[0].starts_with("incoming: "));
-    assert!(lines[0].contains("id=sess"));
-    assert!(lines[0].contains("kind=Bash"));
+    let body = strip_timestamp(lines[0]);
+    assert!(body.starts_with("incoming: "));
+    assert!(body.contains("id=sess"));
+    assert!(body.contains("kind=Bash"));
 }
 
 #[test]
@@ -45,7 +72,8 @@ fn log_outcome_green() {
     logger.log_outcome(&input(), &Verdict::Green);
 
     let content = fs::read_to_string(&log).unwrap();
-    assert_eq!(content.trim(), "outcome: id=sess verdict=Green");
+    let line = content.trim_end_matches('\n');
+    assert_eq!(strip_timestamp(line), "outcome: id=sess verdict=Green");
 }
 
 #[test]
@@ -103,10 +131,12 @@ fn log_error_walks_source_chain() {
     logger.log_error(&input(), &err);
 
     let content = fs::read_to_string(&log).unwrap();
-    assert!(content.starts_with("error: id=sess "));
-    assert!(content.contains("outer wrapper"));
-    assert!(content.contains("inner cause"));
-    assert!(content.contains("disk full"));
+    let line = content.trim_end_matches('\n');
+    let body = strip_timestamp(line);
+    assert!(body.starts_with("error: id=sess "));
+    assert!(body.contains("outer wrapper"));
+    assert!(body.contains("inner cause"));
+    assert!(body.contains("disk full"));
 }
 
 #[test]
@@ -150,21 +180,22 @@ fn concurrent_threads_write_whole_lines() {
     );
 
     for (idx, line) in lines.iter().enumerate() {
-        let first_marker = &line[..line.find(' ').unwrap_or(line.len())];
+        let body = strip_timestamp(line);
+        let first_marker = &body[..body.find(' ').unwrap_or(body.len())];
         assert!(
             first_marker.starts_with("THREAD-"),
-            "line {idx} does not start with a marker: {line:?}"
+            "line {idx} body does not start with a marker: {body:?}"
         );
-        let marker_count = line.matches("THREAD-").count();
+        let marker_count = body.matches("THREAD-").count();
         assert_eq!(
             marker_count, 1,
             "line {idx} contains {marker_count} markers (expected 1) — interleaved write: {line:?}",
         );
         assert!(
-            line.contains(" seq="),
+            body.contains(" seq="),
             "line {idx} missing seq field: {line:?}"
         );
-        let body_len = line.matches('x').count();
+        let body_len = body.matches('x').count();
         assert_eq!(
             body_len, BODY_SIZE,
             "line {idx} body length {body_len} != {BODY_SIZE}: truncated or fused",
@@ -184,6 +215,6 @@ fn appends_across_multiple_calls() {
     let content = fs::read_to_string(&log).unwrap();
     let lines: Vec<&str> = content.lines().collect();
     assert_eq!(lines.len(), 2);
-    assert!(lines[0].starts_with("incoming: "));
-    assert!(lines[1].starts_with("outcome: "));
+    assert!(strip_timestamp(lines[0]).starts_with("incoming: "));
+    assert!(strip_timestamp(lines[1]).starts_with("outcome: "));
 }

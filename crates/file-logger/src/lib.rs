@@ -3,6 +3,12 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use domain::{ClassificationInput, ClassifierLogger, RedKind, Verdict};
+use time::OffsetDateTime;
+use time::format_description::FormatItem;
+use time::macros::format_description;
+
+const TIMESTAMP_FORMAT: &[FormatItem<'_>] =
+    format_description!("[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:3]Z");
 
 #[cfg(test)]
 mod tests;
@@ -46,8 +52,14 @@ impl FileLogger {
         else {
             return;
         };
-        let mut buf =
-            String::with_capacity(self.prefix.as_ref().map_or(0, |p| p.len() + 1) + line.len() + 1);
+        let Ok(timestamp) = OffsetDateTime::now_utc().format(&TIMESTAMP_FORMAT) else {
+            return;
+        };
+        let mut buf = String::with_capacity(
+            timestamp.len() + 1 + self.prefix.as_ref().map_or(0, |p| p.len() + 1) + line.len() + 1,
+        );
+        buf.push_str(&timestamp);
+        buf.push(' ');
         if let Some(prefix) = &self.prefix {
             buf.push_str(prefix);
             buf.push(' ');

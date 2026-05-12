@@ -22,7 +22,7 @@ Empty strings count as unset. Both unset/empty → fail closed: deny, exit 2, st
 │       ├── pending.json    # staged scope for the next child this agent spawns
 │       ├── disabled.marker # disable flag (root agents only; existence = disabled)
 │       └── prompt.lock     # per-root flock used during the verdict prompt
-└── remit.log               # append-only audit log
+└── remit.log               # append-only audit log; every line prefixed with an RFC 3339 UTC timestamp (ms precision)
 ```
 
 `agents/` and per-agent subdirs are created lazily on first write.
