@@ -135,6 +135,13 @@ Tests live in separate files, never appended to source modules. Unit tests for p
 - Never bypass with `--no-verify`; fix the underlying issue.
 - Issues live on the `remit-sh/Remit` GitHub Project (#9). Reference with `Refs #N` (or `Closes #N` to auto-close).
 
+## Issue sizing
+
+- Prefer one larger issue over several small ones, especially for speculative future work.
+- Sub-features of a larger feature belong inside that feature's body (or as a checklist on it), not as separate issues.
+- Split only when the work is about to start and parallelism or independent review actually pays off.
+- Tiny premature issues create overwhelm without unlocking anything.
+
 ## Worktrees
 
 - Always create with a new branch: `git worktree add <path> -b <branch> main`.
