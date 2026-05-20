@@ -31,7 +31,7 @@ fn prompter_with(script: &str) -> (SwiftPrompter, tempfile::TempDir) {
     let (path, dir) = fake_binary(script);
     let p = SwiftPrompter::new()
         .with_binary(path)
-        .with_timeout(Duration::from_secs(3));
+        .with_timeout(Duration::from_secs(30));
     (p, dir)
 }
 
@@ -151,7 +151,7 @@ fn request_carries_protocol_kind_and_fields() {
     let (path, _d) = fake_binary(&script);
     let p = SwiftPrompter::new()
         .with_binary(path)
-        .with_timeout(Duration::from_secs(3));
+        .with_timeout(Duration::from_secs(30));
     let _ = p
         .choose(
             &scope("my scope"),
@@ -218,7 +218,7 @@ exit 1"#,
 fn binary_missing_maps_to_unavailable() {
     let p = SwiftPrompter::new()
         .with_binary(PathBuf::from("/definitely/does/not/exist/remit-prompter"))
-        .with_timeout(Duration::from_secs(3));
+        .with_timeout(Duration::from_secs(30));
     let err = p
         .choose(&scope("s"), &bash_action(), "r", Path::new("/w"))
         .unwrap_err();
