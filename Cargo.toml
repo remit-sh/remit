@@ -3,7 +3,7 @@ resolver = "3"
 members = [
     "crates/domain",
     "crates/remit-config",
-    "crates/file-logger",
+    "crates/file-classification-history",
     "crates/file-scope-store",
     "crates/file-standing-guidance",
     "crates/osascript-prompter",
@@ -11,6 +11,7 @@ members = [
     "crates/prompt-lock",
     "crates/anthropic-classifier",
     "crates/claude-code-hook",
+    "crates/remit-cli",
 ]
 
 [workspace.package]

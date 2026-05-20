@@ -8,10 +8,10 @@ use std::path::Path;
 use std::rc::Rc;
 
 use domain::{
-    Action, AgentId, AgentStore, ClassificationContext, ClassificationInput, ClassifierLogger,
-    LlmClassifier, LlmClassifierError, LlmDecision, PromptError, PromptLock, Prompter, RedKind,
-    Scope, ScopeStoreError, StandingGuidance, StandingGuidanceError, StandingGuidanceReader,
-    Verdict, VerdictChoice,
+    Action, AgentId, AgentStore, ClassificationContext, ClassificationHistoryWriter,
+    ClassificationInput, LlmClassifier, LlmClassifierError, LlmDecision, PromptError, PromptLock,
+    Prompter, RedKind, Scope, ScopeStoreError, StandingGuidance, StandingGuidanceError,
+    StandingGuidanceReader, Verdict, VerdictChoice,
 };
 
 /// Fake [`AgentStore`] for domain tests. Holds in-memory state for scope, pending,
@@ -215,16 +215,20 @@ impl RecordingLogger {
     }
 }
 
-impl ClassifierLogger for RecordingLogger {
-    fn log_incoming(&self, _input: &ClassificationInput) {
+impl ClassificationHistoryWriter for RecordingLogger {
+    fn record_incoming(&self, _input: &ClassificationInput) {
         *self.incoming.borrow_mut() += 1;
     }
 
-    fn log_outcome(&self, _input: &ClassificationInput, verdict: &Verdict) {
+    fn record_outcome(&self, _input: &ClassificationInput, verdict: &Verdict) {
         self.outcomes.borrow_mut().push(verdict.into());
     }
 
-    fn log_error(&self, _input: &ClassificationInput, error: &(dyn std::error::Error + 'static)) {
+    fn record_error(
+        &self,
+        _input: &ClassificationInput,
+        error: &(dyn std::error::Error + 'static),
+    ) {
         let mut chain = error.to_string();
         let mut current = error.source();
         while let Some(c) = current {
@@ -235,9 +239,13 @@ impl ClassifierLogger for RecordingLogger {
         self.errors.borrow_mut().push(chain);
     }
 
-    fn log_event(&self, _input: &ClassificationInput, event: &str) {
+    fn record_event(&self, _input: &ClassificationInput, event: &str) {
         self.events.borrow_mut().push(event.to_string());
     }
+
+    fn record_hook_event(&self, _name: &str) {}
+
+    fn record_custom(&self, _kind: &str, _payload: serde_json::Value) {}
 }
 
 /// Stub `Prompter` driven by pre-loaded queues — one queue per method. Tests

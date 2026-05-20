@@ -18,9 +18,10 @@ Trunk-based rewrite in progress. See [`docs/tn/`](docs/tn/) for the working surf
 crates/
 ├── domain/              # ports, types, services — pure
 ├── remit-config/        # ~/.remit/config.toml loader
-├── file-logger/         # outbound adapter — append-only NDJSON log
+├── file-classification-history/ # outbound adapter — NDJSON write + query
 ├── file-scope-store/    # outbound adapter — JSON-per-session scope store
-└── claude-code-hook/    # inbound adapter — Claude Code PreToolUse hook
+├── claude-code-hook/    # inbound adapter — Claude Code PreToolUse hook
+└── remit-cli/           # inbound adapter — `remit` CLI (`remit logs`)
 ```
 
 ## Build

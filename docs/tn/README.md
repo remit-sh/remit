@@ -20,3 +20,4 @@ See [TN-2026-001](TN-2026-001-technical-notes-and-doc-structure.md) for the syst
 | [TN-2026-010](TN-2026-010-red-verdict-prompt.md) | User-bypass prompt on Red verdicts | plan | active |
 | [TN-2026-011](TN-2026-011-swift-prompter.md) | Swift prompter binary — UI foundation | plan | active |
 | [TN-2026-012](TN-2026-012-scope-prompt-ui-fixes.md) | Scope-prompt UI fixes — paste, action, centred wordmark, scope echo | plan | active |
+| [TN-2026-013](TN-2026-013-remit-cli-logs.md) | `remit` CLI with `remit logs` + NDJSON migration | plan | active |

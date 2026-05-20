@@ -7,7 +7,7 @@ rust-version.workspace = true
 [dependencies]
 anthropic-classifier = { path = "../anthropic-classifier" }
 domain = { path = "../domain" }
-file-logger = { path = "../file-logger" }
+file-classification-history = { path = "../file-classification-history" }
 file-standing-guidance = { path = "../file-standing-guidance" }
 file-scope-store = { path = "../file-scope-store" }
 prompt-lock = { path = "../prompt-lock" }

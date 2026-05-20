@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::SystemTime;
 
 use nutype::nutype;
 
@@ -113,15 +114,31 @@ pub enum RedKind {
     StandingGuidanceUnavailable,
 }
 
-/// Outbound observability port. Per [`process_action`] call: one
-/// `log_incoming`, one `log_outcome`, plus `log_error` on port failures and
-/// `log_event` for in-flight state transitions (see TN-2026-010 for the event
-/// catalogue).
-pub trait ClassifierLogger {
-    fn log_incoming(&self, input: &ClassificationInput);
-    fn log_outcome(&self, input: &ClassificationInput, verdict: &Verdict);
-    fn log_error(&self, input: &ClassificationInput, error: &(dyn std::error::Error + 'static));
-    fn log_event(&self, input: &ClassificationInput, event: &str);
+/// Outbound write port on the classification history. Per
+/// [`process_action`] call: one `record_incoming`, one `record_outcome`,
+/// plus `record_error` on port failures and `record_event` for in-flight
+/// state transitions (see TN-2026-010 for the event catalogue).
+///
+/// `record_custom` is the escape hatch for adapter-specific events the
+/// domain doesn't model (e.g. hook lifecycle, bundled-scope handoffs in
+/// the Claude Code adapter). The writer doesn't interpret `payload` —
+/// it should be a JSON object whose fields are merged into the line
+/// alongside the writer's `ts`, `event: <kind>`, and `markers`.
+/// Non-object payloads are recorded with no extra fields.
+pub trait ClassificationHistoryWriter {
+    fn record_incoming(&self, input: &ClassificationInput);
+    fn record_outcome(&self, input: &ClassificationInput, verdict: &Verdict);
+    fn record_error(&self, input: &ClassificationInput, error: &(dyn std::error::Error + 'static));
+    fn record_event(&self, input: &ClassificationInput, event: &str);
+
+    /// Record an adapter-lifecycle hook firing. The hook name is
+    /// adapter-chosen (Claude Code: `PreToolUse`, `SubagentStart`,
+    /// `SessionStart`; other adapters may use their own labels). The
+    /// concept — "the firewall was invoked because the host runtime
+    /// reached a notable moment" — is universal.
+    fn record_hook_event(&self, name: &str);
+
+    fn record_custom(&self, kind: &str, payload: serde_json::Value);
 }
 
 pub enum LlmDecision {
@@ -332,6 +349,72 @@ pub struct PromptingDeps<'a, P: Prompter, K: PromptLock> {
 
 mod flow;
 pub use flow::{process_action, resolve_scope};
+
+/// Outbound query port: read access to the **classification log**.
+/// Adapter-agnostic; implementations back this with whatever storage
+/// they like (NDJSON file today, SQLite tomorrow per #38).
+///
+/// Returns records in append order (approximately chronological under
+/// the writer's exclusive-lock contract). Filters are applied in-memory
+/// against the result set.
+pub trait ClassificationHistoryReader {
+    fn query(&self, query: &HistoryQuery) -> Result<Vec<ClassificationRecord>, HistoryQueryError>;
+}
+
+/// Filter set for a `remit logs` query. All fields are optional;
+/// `HistoryQuery::default()` matches every record.
+///
+/// `root_agent_id` resolves to "all descendants of this **Agent**" via
+/// the parent-agent chain reconstructable from the records themselves.
+/// No persistent root id; the adapter builds the child→parent map at
+/// query time.
+///
+/// `limit` returns the **most recent** N records (after filtering).
+/// `Some(0)` is treated as unlimited; the CLI surface should map `0`
+/// to `None` for clarity.
+#[derive(Debug, Default, Clone)]
+pub struct HistoryQuery {
+    pub agent_id: Option<AgentId>,
+    pub root_agent_id: Option<AgentId>,
+    pub verdict: Option<VerdictFilter>,
+    pub since: Option<SystemTime>,
+    pub action: Option<ActionKind>,
+    pub limit: Option<usize>,
+}
+
+/// User-facing verdict filter. Distinct from [`Verdict`] because the
+/// CLI doesn't filter on `RedKind` or `reason` — only on the binary
+/// Green/Red axis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VerdictFilter {
+    Green,
+    Red,
+}
+
+/// One classified action as materialised for query consumers.
+/// Composed from `outcome` records in the underlying log; the adapter
+/// also reads `incoming` records to reconstruct the parent chain for
+/// root-descendant resolution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClassificationRecord {
+    pub timestamp: SystemTime,
+    pub agent_id: AgentId,
+    pub parent_agent_id: Option<AgentId>,
+    pub action: ActionKind,
+    pub verdict: Verdict,
+    pub working_dir: PathBuf,
+    /// Opaque, adapter-stringified action args. `Some` only when the
+    /// record was captured under `debug_mode`. Domain treats this as
+    /// data — no parsing, no semantic interpretation.
+    pub args: Option<ActionArgs>,
+}
+
+#[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
+pub enum HistoryQueryError {
+    #[error("classification history unavailable")]
+    Unavailable(#[source] Box<dyn std::error::Error + Send + Sync>),
+}
 
 /// Maps one [`ClassificationInput`] to one [`Verdict`]. Scope absent → Red
 /// with the appropriate [`RedKind`]; adapter errors fail-closed to Red. Pure

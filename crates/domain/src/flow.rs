@@ -2,9 +2,9 @@
 //! the domain's ports together. Composition roots call [`process_action`].
 
 use crate::{
-    Agent, AgentId, AgentStore, ClassificationInput, Classifier, ClassifierLogger, LlmClassifier,
-    PromptError, PromptLock, Prompter, PromptingDeps, RedKind, Scope, ScopeStoreError,
-    StandingGuidance, StandingGuidanceReader, Verdict, VerdictChoice,
+    Agent, AgentId, AgentStore, ClassificationHistoryWriter, ClassificationInput, Classifier,
+    LlmClassifier, PromptError, PromptLock, Prompter, PromptingDeps, RedKind, Scope,
+    ScopeStoreError, StandingGuidance, StandingGuidanceReader, Verdict, VerdictChoice,
 };
 
 pub fn resolve_scope<S: AgentStore>(
@@ -20,8 +20,8 @@ fn root_key(agent: &Agent) -> &AgentId {
     agent.parent_id.as_ref().unwrap_or(&agent.id)
 }
 
-/// Owns the audit trail: exactly one `log_incoming` + one `log_outcome`,
-/// `log_error` on any port failure, and `log_event` for in-flight transitions
+/// Owns the audit trail: exactly one `record_incoming` + one `record_outcome`,
+/// `record_error` on any port failure, and `record_event` for in-flight transitions
 /// inside the prompt flow.
 #[allow(clippy::too_many_arguments)] // composition glue: each port is a distinct collaborator
 pub fn process_action<S, L, C, P, K, G>(
@@ -34,24 +34,24 @@ pub fn process_action<S, L, C, P, K, G>(
 ) -> Verdict
 where
     S: AgentStore,
-    L: ClassifierLogger,
+    L: ClassificationHistoryWriter,
     C: LlmClassifier,
     P: Prompter,
     K: PromptLock,
     G: StandingGuidanceReader,
 {
-    logger.log_incoming(input);
+    logger.record_incoming(input);
     let verdict = match guidance_reader.read() {
         Ok(guidance) => process_inner(input, store, classifier, logger, prompting, &guidance),
         Err(e) => {
-            logger.log_error(input, &e);
+            logger.record_error(input, &e);
             Verdict::Red {
                 kind: RedKind::StandingGuidanceUnavailable,
                 reason: format!("standing guidance unavailable: {e}"),
             }
         }
     };
-    logger.log_outcome(input, &verdict);
+    logger.record_outcome(input, &verdict);
     verdict
 }
 
@@ -74,7 +74,7 @@ fn process_inner<S, L, C, P, K>(
 ) -> Verdict
 where
     S: AgentStore,
-    L: ClassifierLogger,
+    L: ClassificationHistoryWriter,
     C: LlmClassifier,
     P: Prompter,
     K: PromptLock,
@@ -91,12 +91,12 @@ where
                 } else {
                     "session-disabled"
                 };
-                logger.log_event(input, event);
+                logger.record_event(input, event);
                 return Verdict::Green;
             }
             Ok(false) => {}
             Err(e) => {
-                logger.log_error(input, &e);
+                logger.record_error(input, &e);
                 return Verdict::Red {
                     kind: RedKind::StoreUnavailable,
                     reason: format!("agent store unavailable: {e}"),
@@ -107,7 +107,7 @@ where
         let scope = match resolve_scope(store, &input.agent) {
             Ok(s) => s,
             Err(e) => {
-                logger.log_error(input, &e);
+                logger.record_error(input, &e);
                 return Verdict::Red {
                     kind: RedKind::StoreUnavailable,
                     reason: format!("agent store unavailable: {e}"),
@@ -120,7 +120,7 @@ where
         let verdict = match &cached {
             Some((prior, v)) if prior == &scope => v.clone(),
             Some(_) => {
-                logger.log_event(input, "scope-changed-during-wait");
+                logger.record_event(input, "scope-changed-during-wait");
                 let v = classifier.classify(input, scope.as_ref(), standing);
                 cached = Some((scope.clone(), v.clone()));
                 v
@@ -143,14 +143,14 @@ where
             lock_guard = Some(match prompting.lock.acquire(&key) {
                 Ok(g) => g,
                 Err(e) => {
-                    logger.log_error(input, &e);
+                    logger.record_error(input, &e);
                     return Verdict::Red {
                         kind: RedKind::ScopeSetupUnavailable,
                         reason: format!("prompt lock unavailable: {e}"),
                     };
                 }
             });
-            logger.log_event(input, "prompt-lock-acquired");
+            logger.record_event(input, "prompt-lock-acquired");
             continue;
         }
 
@@ -191,22 +191,22 @@ fn handle_first_time_setup<S, L, P, K>(
 ) -> Step
 where
     S: AgentStore,
-    L: ClassifierLogger,
+    L: ClassificationHistoryWriter,
     P: Prompter,
     K: PromptLock,
 {
-    logger.log_event(input, "prompt-update-scope: first-time");
+    logger.record_event(input, "prompt-update-scope: first-time");
     match prompting.prompter.update_scope(None, &input.working_dir) {
         Ok(new_scope) => persist_scope(input, new_scope, store, logger),
         Err(PromptError::Cancelled) => {
-            logger.log_event(input, "user-cancelled-scope-setup");
+            logger.record_event(input, "user-cancelled-scope-setup");
             Step::Done(Verdict::Red {
                 kind: RedKind::ScopeSetupCancelled,
                 reason: "scope setup cancelled; nothing was set".into(),
             })
         }
         Err(e @ PromptError::Unavailable(_)) => {
-            logger.log_error(input, &e);
+            logger.record_error(input, &e);
             Step::Done(Verdict::Red {
                 kind: RedKind::ScopeSetupUnavailable,
                 reason: format!("scope prompt unavailable: {e}"),
@@ -227,7 +227,7 @@ fn handle_multi_button<S, L, P, K>(
 ) -> Step
 where
     S: AgentStore,
-    L: ClassifierLogger,
+    L: ClassificationHistoryWriter,
     P: Prompter,
     K: PromptLock,
 {
@@ -243,29 +243,29 @@ where
         });
     };
 
-    logger.log_event(input, &format!("prompt-choose: kind={kind:?}"));
+    logger.record_event(input, &format!("prompt-choose: kind={kind:?}"));
     let choice = match prompting
         .prompter
         .choose(scope, &input.action, reason, &input.working_dir)
     {
         Ok(c) => c,
         Err(PromptError::Cancelled) => {
-            logger.log_event(input, "user-deny");
+            logger.record_event(input, "user-deny");
             return Step::Done(verdict.clone());
         }
         Err(e @ PromptError::Unavailable(_)) => {
-            logger.log_error(input, &e);
+            logger.record_error(input, &e);
             return Step::Done(verdict.clone());
         }
     };
 
     match choice {
         VerdictChoice::Deny => {
-            logger.log_event(input, "user-deny");
+            logger.record_event(input, "user-deny");
             Step::Done(verdict.clone())
         }
         VerdictChoice::Allow => {
-            logger.log_event(input, "user-allow");
+            logger.record_event(input, "user-allow");
             Step::Done(Verdict::Green)
         }
         VerdictChoice::UpdateScope => handle_update_scope(input, scope, store, logger, prompting),
@@ -284,22 +284,22 @@ fn handle_update_scope<S, L, P, K>(
 ) -> Step
 where
     S: AgentStore,
-    L: ClassifierLogger,
+    L: ClassificationHistoryWriter,
     P: Prompter,
     K: PromptLock,
 {
-    logger.log_event(input, "prompt-update-scope: edit");
+    logger.record_event(input, "prompt-update-scope: edit");
     match prompting
         .prompter
         .update_scope(Some(current), &input.working_dir)
     {
         Ok(new_scope) => persist_scope(input, new_scope, store, logger),
         Err(PromptError::Cancelled) => {
-            logger.log_event(input, "user-cancelled-edit");
+            logger.record_event(input, "user-cancelled-edit");
             Step::Retry
         }
         Err(e @ PromptError::Unavailable(_)) => {
-            logger.log_error(input, &e);
+            logger.record_error(input, &e);
             Step::Retry
         }
     }
@@ -314,16 +314,16 @@ fn handle_disable_session<S, L, P, K>(
 ) -> Step
 where
     S: AgentStore,
-    L: ClassifierLogger,
+    L: ClassificationHistoryWriter,
     P: Prompter,
     K: PromptLock,
 {
-    logger.log_event(input, "prompt-confirm-disable");
+    logger.record_event(input, "prompt-confirm-disable");
     match prompting.prompter.confirm_disable() {
         Ok(true) => {
-            logger.log_event(input, "user-confirmed-disable");
+            logger.record_event(input, "user-confirmed-disable");
             if let Err(e) = store.disable(key) {
-                logger.log_error(input, &e);
+                logger.record_error(input, &e);
                 return Step::Done(Verdict::Red {
                     kind: RedKind::StoreUnavailable,
                     reason: format!("agent store unavailable: {e}"),
@@ -332,11 +332,11 @@ where
             Step::Done(Verdict::Green)
         }
         Ok(false) => {
-            logger.log_event(input, "user-cancelled-disable");
+            logger.record_event(input, "user-cancelled-disable");
             Step::Retry
         }
         Err(e) => {
-            logger.log_error(input, &e);
+            logger.record_error(input, &e);
             Step::Retry
         }
     }
@@ -345,11 +345,11 @@ where
 fn persist_scope<S, L>(input: &ClassificationInput, scope: Scope, store: &S, logger: &L) -> Step
 where
     S: AgentStore,
-    L: ClassifierLogger,
+    L: ClassificationHistoryWriter,
 {
-    logger.log_event(input, "user-typed-scope");
+    logger.record_event(input, "user-typed-scope");
     if let Err(e) = store.assign_scope(&input.agent.id, scope) {
-        logger.log_error(input, &e);
+        logger.record_error(input, &e);
         return Step::Done(Verdict::Red {
             kind: RedKind::StoreUnavailable,
             reason: format!("agent store unavailable: {e}"),

@@ -12,7 +12,7 @@ tags: [architecture, dependency-rule, ports]
 ## Context
 
 - Remit is a security tool. The classification core must be testable in isolation, IO-free, and replaceable per host (Claude Code today, other agents later).
-- Crates already split hexagonally: `domain/`, `file-logger/`, `file-scope-store/`, `osascript-prompter/`, `anthropic-classifier/`, `remit-config/`, `claude-code-hook/`.
+- Crates already split hexagonally: `domain/`, `file-classification-log/`, `file-scope-store/`, `osascript-prompter/`, `anthropic-classifier/`, `remit-config/`, `claude-code-hook/`.
 - Existing ports: `ClassifierLogger`, `LlmClassifier`, `ScopeReader`, `ScopeWriter`, `PendingScopeStore`, `ScopePrompter` — one MVP adapter each, more expected.
 
 ## Decision
@@ -28,7 +28,7 @@ Adapter → Adapter   ❌  never
 ```
 
 - Domain has zero infrastructure deps; trait definitions, domain types, domain services only.
-- Adapters live in their own crate, named by **role**, not technology (`file-logger`, not `ndjson-logger`).
+- Adapters live in their own crate, named by **role**, not technology (`file-classification-log`, not `ndjson-classification-log`).
 - Wire types (hook payloads, HTTP DTOs) live in adapter crates; never leak into domain.
 - Composition roots (binary crates, e.g. `claude-code-hook`) are the only place adapters get wired to ports.
 

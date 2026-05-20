@@ -32,6 +32,12 @@
 - Unrelated dead code: mention, don't delete.
 - Remove imports/variables/functions your changes orphaned. Don't remove pre-existing dead code unless asked.
 
+## No backwards compatibility
+
+- The project is pre-release. There are no external consumers, no shipped releases, no deprecation contracts to honour.
+- When renaming or restructuring: change every callsite to the new name. No deprecated aliases, no `#[deprecated]` shims, no re-exports of old names, no "TODO: remove after migration" comments.
+- The codebase should always reflect its current, intended state — never carry transitional layers.
+
 ## Naming
 
 - Names should make it clear what a variable is. Reflect the type when not obvious from immediate context.
@@ -63,12 +69,13 @@ Rust workspace, hexagonal architecture.
 
 ```
 crates/
-├── domain/             # pure types + functions; no ports yet
-├── file-logger/        # outbound adapter — append-only NDJSON log
-└── claude-code-hook/   # inbound adapter — Claude Code PreToolUse hook
+├── domain/             # pure types + functions; ports
+├── file-classification-history/ # outbound adapter — NDJSON write + query
+├── claude-code-hook/   # inbound adapter — Claude Code PreToolUse hook
+└── remit-cli/          # inbound adapter — `remit` CLI (`remit logs`)
 ```
 
-`claude-code-hook` reads the hook payload from stdin, builds a `ClassificationInput`, and runs it through `domain::Classifier` (wired with `FileLogger`). The classifier logs the input then returns a **Verdict**. Exit `0` for Green, `2` for Red (reason on stderr). `Classifier::classify` currently always returns Green.
+`claude-code-hook` reads the hook payload from stdin, builds a `ClassificationInput`, and runs it through `domain::Classifier` (wired with `FileClassificationHistoryWriter`). The classifier records the input to the **Classification history** then returns a **Verdict**. Exit `0` for Green, `2` for Red (reason on stderr). `Classifier::classify` currently always returns Green.
 
 # Architecture rules
 

@@ -23,7 +23,7 @@ tags: [architecture, security, verdict]
   - Port errors (`ScopeStoreError`, `PromptError`, `LlmClassifierError`) map to typed Red verdicts (`StoreUnavailable`, `ScopeSetupUnavailable`, `ClassifierUnavailable`).
   - Missing scope on a subagent → `SubagentMissingScope` (Red); never silent inheritance.
   - Empty or whitespace-only scope text rejected at the boundary (`Scope` newtype refuses construction).
-- Logging is **best-effort**: a logging glitch must never flip Red to Green, nor block a verdict. `FileLogger::log_line` swallows IO errors by design.
+- Logging is **best-effort**: a logging glitch must never flip Red to Green, nor block a verdict. `FileLogger` swallows IO errors by design.
 - Composition roots translate verdicts to transport (exit 2 + stderr for the hook); translation never re-introduces a fail-open path.
 
 ## Consequences

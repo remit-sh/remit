@@ -91,6 +91,23 @@ A TN graduates when its decision is durable.
 2. Set the original TN's `status: superseded` and `superseded-by: [<new-id>]`.
 3. Add a banner at the top of the TN body: `> Superseded by [<new-id>](...)`.
 
+### Edits to active TNs
+
+Active TNs are the working surface — editing them in place is the norm, not an exception. Codebase-wide refactors (renames, restructures) routinely invalidate identifiers quoted in active TNs; update those in place rather than spawning supersession churn.
+
+When a substantive edit lands (anything beyond fixing typos / dead links), append a one-line note to a trailing `## Edits` section at the bottom of the TN:
+
+```markdown
+## Edits
+
+- 2026-05-20: rename pass — `FileLogger` → `FileClassificationHistoryWriter` etc.
+- 2026-04-12: clarified the descendant-walk algorithm.
+```
+
+- Dated. One bullet per edit. No supersession metadata — the TN's `status` stays `active`.
+- Trivial fixes (typo, broken link, formatting) don't need a note.
+- This applies only to TNs. ADRs/CDRs change via supersession.
+
 ### Supersession (ADR ↔ ADR or CDR ↔ CDR)
 
 1. Newer record gets `supersedes: [<old-id>]`.
@@ -125,5 +142,6 @@ A TN graduates when its decision is durable.
 - A new file under `docs/tn/` without TN front matter, or with an invalid `kind`/`status`, is a flag.
 - A new file under `docs/decisions/{adr,cdr}/` without ADR/CDR front matter or `## Compliance` section is a flag.
 - A change to an `active` ADR/CDR's `## Decision` section without a status flip to `superseded` (or clearly editorial fix) is a flag; substantive changes happen via supersession, not in-place edits.
+- A substantive edit to an `active` TN without an entry in a trailing `## Edits` section is a flag. Trivial fixes (typos, link rot, formatting) don't need a note.
 - `docs/decisions/README.md` and `docs/tn/README.md` must list every record on disk; missing entries are a flag.
 - A TN promoted to ADR/CDR without `status: superseded` and a `superseded-by` pointer is a flag.

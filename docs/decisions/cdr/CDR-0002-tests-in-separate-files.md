@@ -18,7 +18,7 @@ tags: [convention, tests, layout]
 
 - Tests **never** live inline at the bottom of a source file.
 - Unit tests for items in `lib.rs` (or any `mod.rs`) live in a sibling `tests.rs`, declared `#[cfg(test)] mod tests;` in the source file.
-  - Example: `crates/file-logger/src/lib.rs` ↔ `crates/file-logger/src/tests.rs`.
+  - Example: `crates/file-classification-history/src/lib.rs` ↔ `crates/file-classification-history/src/tests.rs`.
 - Integration tests (anything exercising adapters end-to-end against real backends) live under each crate's `tests/` directory.
 - Domain-side contract test harnesses (shared across adapter test suites) live in `crates/domain/src/test_support.rs` behind the `test-support` feature flag (see CDR-0003).
 

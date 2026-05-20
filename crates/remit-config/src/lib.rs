@@ -23,6 +23,10 @@ pub struct RemitConfig {
     /// When true, the hook runs the classifier as normal but exits 0 even on
     /// `Verdict::Red`. The would-have-denied reason is logged to stderr.
     pub dev_bypass: bool,
+    /// When true, classification records persist action args (the tool input
+    /// payload). Off by default — args carry potentially sensitive content
+    /// and CLAUDE.md forbids logging them. Enable only for forensic scans.
+    pub debug_mode: bool,
     pub classifier: ClassifierConfig,
 }
 
@@ -76,7 +80,10 @@ impl RemitConfig {
     pub fn audit_markers(&self) -> Vec<String> {
         let mut markers = Vec::new();
         if self.dev_bypass {
-            markers.push("[dev-bypass-active]".into());
+            markers.push("dev-bypass-active".into());
+        }
+        if self.debug_mode {
+            markers.push("debug-mode".into());
         }
         markers
     }

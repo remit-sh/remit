@@ -1,4 +1,9 @@
-use crate::{AgentId, AgentStore, Scope};
+use std::collections::HashSet;
+
+use crate::{
+    AgentId, AgentStore, ClassificationHistoryReader, ClassificationRecord, HistoryQuery,
+    HistoryQueryError, Scope, Verdict, VerdictFilter,
+};
 
 /// Contract test for [`AgentStore`] implementations. Adapters call this from
 /// a `#[test]` to prove conformance — same suite for every backend. Takes a
@@ -119,4 +124,111 @@ where
     );
     assert!(store.is_disabled(&disable_a).unwrap());
     assert!(!store.is_disabled(&disable_b).unwrap());
+}
+
+/// In-memory [`ClassificationHistoryReader`] for domain tests and
+/// downstream adapter tests. Records are matched against
+/// [`HistoryQuery`] in append order; root-descendant resolution walks
+/// the parent-agent chain reconstructed from the records themselves.
+#[derive(Clone, Debug, Default)]
+pub struct InMemoryClassificationHistory {
+    records: Vec<ClassificationRecord>,
+}
+
+impl InMemoryClassificationHistory {
+    pub fn new(records: Vec<ClassificationRecord>) -> Self {
+        Self { records }
+    }
+
+    pub fn push(&mut self, record: ClassificationRecord) {
+        self.records.push(record);
+    }
+}
+
+impl ClassificationHistoryReader for InMemoryClassificationHistory {
+    fn query(&self, query: &HistoryQuery) -> Result<Vec<ClassificationRecord>, HistoryQueryError> {
+        let matches: Vec<ClassificationRecord> = self
+            .records
+            .iter()
+            .filter(|r| record_matches(r, query, &self.records))
+            .cloned()
+            .collect();
+        Ok(apply_limit(matches, query.limit))
+    }
+}
+
+fn record_matches(
+    record: &ClassificationRecord,
+    query: &HistoryQuery,
+    all: &[ClassificationRecord],
+) -> bool {
+    if let Some(agent_id) = &query.agent_id
+        && &record.agent_id != agent_id
+    {
+        return false;
+    }
+    if let Some(root_agent_id) = &query.root_agent_id
+        && !is_descendant_of(&record.agent_id, root_agent_id, all)
+    {
+        return false;
+    }
+    if let Some(filter) = query.verdict
+        && !verdict_matches(filter, &record.verdict)
+    {
+        return false;
+    }
+    if let Some(since) = query.since
+        && record.timestamp < since
+    {
+        return false;
+    }
+    if let Some(action) = &query.action
+        && &record.action != action
+    {
+        return false;
+    }
+    true
+}
+
+fn verdict_matches(filter: VerdictFilter, verdict: &Verdict) -> bool {
+    matches!(
+        (filter, verdict),
+        (VerdictFilter::Green, Verdict::Green) | (VerdictFilter::Red, Verdict::Red { .. })
+    )
+}
+
+/// Walk `agent`'s parent-agent chain via the records. Returns true iff
+/// `root` is `agent` itself or any ancestor. Cycle-safe.
+fn is_descendant_of(agent: &AgentId, root: &AgentId, all: &[ClassificationRecord]) -> bool {
+    if agent == root {
+        return true;
+    }
+    let mut visited: HashSet<&AgentId> = HashSet::new();
+    let mut current = agent;
+    while visited.insert(current) {
+        let Some(rec) = all.iter().find(|r| &r.agent_id == current) else {
+            return false;
+        };
+        match &rec.parent_agent_id {
+            Some(parent) if parent == root => return true,
+            Some(parent) => current = parent,
+            None => return false,
+        }
+    }
+    false
+}
+
+/// `Some(0)` is treated as unlimited. Otherwise returns the most-recent
+/// (last) N records, preserving append order.
+fn apply_limit(
+    mut records: Vec<ClassificationRecord>,
+    limit: Option<usize>,
+) -> Vec<ClassificationRecord> {
+    if let Some(n) = limit.filter(|&n| n > 0)
+        && records.len() > n
+    {
+        let total = records.len();
+        records.drain(..total - n);
+    }
+    records
 }

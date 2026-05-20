@@ -4,14 +4,18 @@ use std::path::PathBuf;
 
 use anthropic_classifier::AnthropicClassifier;
 use domain::{
-    Action, ActionArgs, ActionKind, Agent, AgentId, AgentStore, AgentType, CallId,
-    ClassificationInput, Classifier, PromptingDeps, Scope, Verdict, process_action,
+    Action, ActionArgs, ActionKind, Agent, AgentId, AgentType, CallId, ClassificationHistoryWriter,
+    ClassificationInput, Classifier, PromptingDeps, Verdict, process_action,
 };
-use file_logger::FileLogger;
+use file_classification_history::FileClassificationHistoryWriter;
 use file_scope_store::FileAgentStore;
 use file_standing_guidance::FileStandingGuidanceReader;
 use prompt_lock::FsPromptLock;
 use swift_prompter::SwiftPrompter;
+
+use crate::bundled_scope::{claim_and_assign, stage_pending};
+
+mod bundled_scope;
 
 #[cfg(test)]
 mod tests;
@@ -74,7 +78,14 @@ fn main() {
     let agents_dir = fail_closed("agents dir", remit_config::agents_dir());
 
     let log_path = fail_closed("log path", remit_config::log_path());
-    let logger = FileLogger::new(log_path, cfg.audit_markers());
+    if cfg.debug_mode {
+        eprintln!(
+            "remit: debug_mode is active; action args will be persisted in {}",
+            log_path.display()
+        );
+    }
+    let logger =
+        FileClassificationHistoryWriter::new(log_path, cfg.audit_markers(), cfg.debug_mode);
 
     let mut buf = String::new();
     fail_closed("read stdin", std::io::stdin().read_to_string(&mut buf));
@@ -87,7 +98,7 @@ fn main() {
         .unwrap_or("")
         .to_string();
 
-    logger.log_line(&format!("hook-event: {event}"));
+    logger.record_hook_event(&event);
 
     let agent_store = FileAgentStore::new(agents_dir.clone());
     let prompt_lock = FsPromptLock::new(agents_dir);
@@ -142,7 +153,7 @@ fn handle_pre_tool_use(
     agent_store: &FileAgentStore,
     prompt_lock: &FsPromptLock,
     prompter: &SwiftPrompter,
-    logger: &FileLogger,
+    logger: &FileClassificationHistoryWriter,
     llm: AnthropicClassifier,
 ) {
     let payload_session = fail_closed(
@@ -190,10 +201,12 @@ fn handle_pre_tool_use(
 
     let agent_type = parse_agent_type(payload.agent_type.as_deref());
     if payload.agent_type.is_some() && agent_type.is_none() {
-        logger.log_line(&format!(
-            "invalid agent_type: {:?}; ignored",
-            payload.agent_type
-        ));
+        logger.record_custom(
+            "invalid_agent_type",
+            serde_json::json!({
+                "raw": payload.agent_type.as_deref().unwrap_or(""),
+            }),
+        );
     }
 
     let guidance_reader = FileStandingGuidanceReader::new(cwd).with_agent_type(agent_type);
@@ -239,74 +252,6 @@ fn format_red_for_agent<S: domain::AgentStore>(
     match agent_store.scope_for(agent_id) {
         Ok(Some(scope)) => format!("{reason}\n\nYour scope: {}", scope.as_ref()),
         Ok(None) | Err(_) => reason.to_string(),
-    }
-}
-
-/// Record the bundled scope under the parent's id, to be claimed by the child's
-/// start hook. Empty-after-trim text is rejected at the boundary; store
-/// failure exits 2 so the parent's spawn doesn't proceed thinking it succeeded.
-fn stage_pending(
-    parent: &AgentId,
-    scope_text: String,
-    agent_store: &FileAgentStore,
-    logger: &FileLogger,
-) {
-    let scope = match Scope::try_new(&scope_text) {
-        Ok(s) => s,
-        Err(_) => {
-            // Fail-closed at the boundary: refuse to stage an empty/whitespace scope.
-            // The child will hit `SubagentMissingScope` at first tool call, which is
-            // strictly safer than binding a meaningless string.
-            logger.log_line(&format!(
-                "stage-pending: parent={parent} skipped (empty bundled scope)"
-            ));
-            return;
-        }
-    };
-    match agent_store.set_pending(parent, scope) {
-        Ok(()) => logger.log_line(&format!(
-            "stage-pending: parent={parent} scope={scope_text:?}"
-        )),
-        Err(e) => {
-            // Fail-closed: deny the spawn so the parent doesn't proceed thinking
-            // the scope was set.
-            logger.log_line(&format!("stage-pending: parent={parent} write-failed: {e}"));
-            std::process::exit(2);
-        }
-    }
-}
-
-/// Claim the parent's pending row and bind the scope to the child's id.
-/// Hit → `assign_scope` under the child; miss → child will be blocked at
-/// first tool call. Exits 2 if assign fails after `take_pending` consumed the row.
-fn claim_and_assign(
-    agent_store: &FileAgentStore,
-    parent: &AgentId,
-    child: &AgentId,
-    hook: &str,
-    logger: &FileLogger,
-) {
-    let claim = agent_store.take_pending(parent);
-    let outcome = match &claim {
-        Ok(Some(scope)) => match agent_store.assign_scope(child, scope.clone()) {
-            Ok(()) => format!("hit scope={:?}", scope.as_ref()),
-            Err(e) => format!("hit-but-assign-failed scope={:?} error={e}", scope.as_ref()),
-        },
-        Ok(None) => "miss (no pending row; child will be blocked at first tool call)".into(),
-        Err(e) => format!("error {e}"),
-    };
-    logger.log_line(&format!(
-        "claim-pending: hook={hook} parent={parent} child={child} {outcome}"
-    ));
-
-    // Fail-closed signal: the pending row was consumed but the child's scope row
-    // wasn't written. The child will hit `SubagentMissingScope` at first tool
-    // call (verdict-correct) but the operator needs to see the underlying cause.
-    if let Ok(Some(_)) = claim
-        && outcome.starts_with("hit-but-assign-failed")
-    {
-        eprintln!("remit: {hook} claim_and_assign: assign failed; child will run unscoped");
-        std::process::exit(2);
     }
 }
 

@@ -9,7 +9,7 @@ use domain::{AgentId, PromptError, PromptLock};
 /// `acquire` blocks behind any in-flight owner of the same agent's lock; the
 /// returned [`FsPromptGuard`] releases on drop.
 ///
-/// Pattern mirrors `FileLogger::log_line` (TN-2026-006): standard library
+/// Pattern mirrors `FileLogger::write_raw` (TN-2026-006): standard library
 /// [`File::lock`] for cross-process exclusive locking. Different agents hash
 /// to different files, so they never block each other.
 pub struct FsPromptLock {
