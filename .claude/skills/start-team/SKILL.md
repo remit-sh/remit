@@ -11,6 +11,7 @@ Team coordinator for trunk-based development. Creates a **named Claude Code agen
 **Claude Code only.** Named agent teams are a Claude Code feature (`TeamCreate` + named `Agent` invocations). Other editors (Cursor, Windsurf, etc.) lack the named team primitives — developers in those environments run `/do-work` manually per issue.
 
 ## Triggers
+
 `/start-team`, "start team", "start the team", "boot up the team"
 
 ---
@@ -23,14 +24,14 @@ Run this once per session before scanning the backlog. Catches hygiene problems 
 
 Verify these are enabled on the project (Settings → Workflows). If any are missing, flag to the user before proceeding:
 
-| Workflow | Direction | Why needed |
-|---|---|---|
-| **Auto-add to project** | New issue → board | Prevents orphan issues |
-| **Item closed** | GitHub close → status Done | Keeps board in sync when closing via CLI |
-| **Item reopened** | GitHub reopen → status Backlog | Prevents reopened issues sitting at Done |
-| **Item added to project** | Added → status Backlog | Every new issue starts with a status |
-| **Auto-close issue** | Status Done → GitHub close | Optional but useful for UI-driven workflows |
-| **Auto-archive items** | Closed + stale → archived | Keeps Done column clean |
+| Workflow                  | Direction                      | Why needed                                  |
+| ------------------------- | ------------------------------ | ------------------------------------------- |
+| **Auto-add to project**   | New issue → board              | Prevents orphan issues                      |
+| **Item closed**           | GitHub close → status Done     | Keeps board in sync when closing via CLI    |
+| **Item reopened**         | GitHub reopen → status Backlog | Prevents reopened issues sitting at Done    |
+| **Item added to project** | Added → status Backlog         | Every new issue starts with a status        |
+| **Auto-close issue**      | Status Done → GitHub close     | Optional but useful for UI-driven workflows |
+| **Auto-archive items**    | Closed + stale → archived      | Keeps Done column clean                     |
 
 If a workflow is missing: tell the user which one and where to find it (project Settings → Workflows). Do not proceed silently.
 
@@ -63,6 +64,7 @@ For each orphan: add to the project and set status to Backlog (or appropriate st
 ```
 
 Query the project for:
+
 - `state == OPEN` and `status == Done` → close the GitHub issue
 - `state == CLOSED` and `status != Done` → flip project status to Done
 
@@ -87,6 +89,7 @@ TeamCreate:
 ```
 
 Check for an existing team first:
+
 - If `~/.claude/teams/dev-team/config.json` exists → reuse it, log "Resuming existing team"
 - If not → create with `TeamCreate`
 
@@ -133,22 +136,22 @@ for item in items:
 gh issue view <NUMBER> --json assignees --jq '.assignees[].login'
 ```
 
-| Assignee state | Action |
-|---|---|
-| Assigned to current user | Pick up — proceed |
-| Unassigned | Skip — log: "Skipping #N — no assignee. Assign to queue for pickup." |
-| Assigned to someone else | Skip silently — belongs to another developer's session |
+| Assignee state           | Action                                                               |
+| ------------------------ | -------------------------------------------------------------------- |
+| Assigned to current user | Pick up — proceed                                                    |
+| Unassigned               | Skip — log: "Skipping #N — no assignee. Assign to queue for pickup." |
+| Assigned to someone else | Skip silently — belongs to another developer's session               |
 
 For each Ready issue assigned to current user:
 
-| Status | Action |
-|---|---|
-| Ready | Full workflow from kick-off |
-| In Progress | Resume — check for active named agent or orphaned worktree |
-| Needs Human | Skip — notify user |
-| Blocked | Skip — check if blocker resolved |
+| Status      | Action                                                              |
+| ----------- | ------------------------------------------------------------------- |
+| Ready       | Full workflow from kick-off                                         |
+| In Progress | Resume — check for active named agent or orphaned worktree          |
+| Needs Human | Skip — notify user                                                  |
+| Blocked     | Skip — check if blocker resolved                                    |
 | Parking Lot | Skip — explicitly deferred, do not pick up without user instruction |
-| Next | Treat as Ready — user has flagged for imminent pickup |
+| Next        | Treat as Ready — user has flagged for imminent pickup               |
 
 ---
 
@@ -176,19 +179,16 @@ Agent:
 
 ## Stage 4 — Monitor
 
-**Review queue:** agents reach `do-ship` Stage 3 with the work committed and the issue at status **In Review**, then send a "ready for human review" message via `SendMessage`. The coordinator collects these into a review queue.
+**Push approval requests:** agents request approval before pushing (`do-ship` Stage 2 gate). The coordinator's role here is defined by **project CLAUDE.md** (`## Ship policy`):
 
-The coordinator is a **router, not an approver**. It does not approve pushes — only the human does. Concretely:
+- If policy allows team-lead approval: review the incoming review summary + commit list and reply with explicit approval or change requests via `SendMessage`. Do not rubber-stamp.
+- If policy requires human-only approval (no coordinator substitute): the coordinator is a **router**, not an approver. Surface the approval request to the human, forward the human's go-ahead back to the agent, and never approve unilaterally. Silence from the human is never approval — the queue holds until the human responds.
 
-- When an agent reports "ready", append it to the queue and acknowledge.
-- When the human asks "what's ready?" / "show me the queue" / `/do-status`, surface the queue: list of `#N — <title> — worktree path — branch`.
-- The human reviews each diff out of band (opens the worktree in their editor, reads the issue comment, optionally spawns a fresh session in the worktree to talk to the agent).
-- When the human says `approve #N`, `push #N`, `ship #N`, `go #N`, or `👍 #N`, forward that approval to the named agent (`dev-<N>`) via `SendMessage`. The agent runs the push.
-- When the human says "needs changes" / describes follow-up work, forward the feedback to the agent. The agent re-enters develop → review → ship.
+Read CLAUDE.md before the first approval request lands and surface the policy: "Per project policy I will approve directly / route to the human." So the user can correct if needed.
 
-Never approve unilaterally. Never assume silence is approval. If the human is offline and an agent reports "ready", the queue holds — that is the correct end state until the human returns.
+A pushed commit on main is effectively deployed — when in doubt, route to the human.
 
-**Push conflict:** after human approval, agent rebases and retries — up to 3 times on a busy trunk. Still failing after 3 → pause, re-notify the human via the queue.
+**Push conflict:** agent rebases and retries — up to 3 times on a busy trunk. Still failing after 3 → pause, escalate to user.
 
 **ADR escalation:** hard stop on affected agent, notify user immediately, others continue.
 
@@ -207,6 +207,7 @@ git log origin/main --oneline --since="1 hour ago"
 ```
 
 If agents are working on overlapping files, send an early-warning `SendMessage` so the second agent knows it will likely need to rebase:
+
 > "dev-42: dev-38 recently touched `src/registry.ts` — your push may need a rebase."
 
 The actual conflict resolution mechanism is the `do-push` rebase-and-retry loop (Stage 4 above). This warning is just early notice — there is no hard sequencing or coordination protocol. Escalate only if rebase produces test failures.
@@ -216,7 +217,6 @@ The actual conflict resolution mechanism is the `do-push` rebase-and-retry loop 
 ## Rules
 
 - **Use `TeamCreate` and named agents** — not anonymous subagents. Named agents are addressable, resumable, and visible in the shared task list.
-- **Never approve a push on the human's behalf** — the coordinator routes the human's go-ahead, never substitutes for it
 - Never sequence pushes — concurrent by design
 - ADR escalation is always a hard stop
 - **Never pick up an unassigned Ready issue** — log it

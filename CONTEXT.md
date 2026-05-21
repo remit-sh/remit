@@ -1,4 +1,8 @@
-# Ubiquitous Language
+# Remit
+
+Project domain language. Use these terms exactly in code, doc comments, commits, conversation, issue titles, and PR descriptions. Listed aliases are not used.
+
+Single context — no per-package contexts (no `CONTEXT-MAP.md` needed).
 
 ## Product
 

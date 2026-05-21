@@ -9,6 +9,7 @@ disable-model-invocation: true
 Sets up the work correctly. Run this before anything else.
 
 **If asked to make any file change before kicking off**, refuse:
+
 > "Before I write anything, we need to kick off. Do you have an issue for this, or shall I create one?"
 
 ---
@@ -18,6 +19,7 @@ Sets up the work correctly. Run this before anything else.
 - Issue number provided by team lead
 - Skip confirmation gates — proceed with defaults
 - Auto-create worktree without asking
+- **Hard stop if issue is not assigned to current user** — report to team lead, do not proceed
 - Report blockers via message, never wait
 
 ---
@@ -26,7 +28,7 @@ Sets up the work correctly. Run this before anything else.
 
 Search before asking. Confirm the matched issue explicitly — never assume a search match is correct.
 
-If not found, offer to create one. Every issue must have a status and epic.
+If not found, offer to create one. Every issue must have a status, epic, and assignee.
 
 Set project status to **In Progress**.
 
@@ -53,6 +55,7 @@ Kick-off is complete. Run `do-plan` next.
 ---
 
 ## Rules
+
 - Never write code — kick-off only sets up the context
 - Never work in a misnamed worktree
-- Never proceed without a confirmed issue
+- Never proceed without a confirmed issue assigned to the current user

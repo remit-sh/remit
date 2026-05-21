@@ -26,7 +26,7 @@ mod tests;
 /// start hook claims it. `Agent` covers fresh in-process spawns and team
 /// peer-process spawns; `SendMessage` covers re-wakes of an existing subagent,
 /// where each round arrives as a new `SubagentStart` with a fresh `agent_id`.
-/// Vocab: [Bundled scope](../../../../docs/UBIQUITOUS_LANGUAGE.md#agents).
+/// Vocab: [Bundled scope](../../../CONTEXT.md#agents).
 const BUNDLED_SCOPE_FIELDS: &[(&str, &str)] = &[("Agent", "prompt"), ("SendMessage", "content")];
 
 /// JSON keys dropped from `tool_input` before classification. Agent-controlled

@@ -8,9 +8,11 @@ description: Streamline a markdown doc — reorder sections for flow, kill repet
 Make a markdown doc shorter and easier to read without losing information. Run as stage 5 of `/do-work` on every doc change before push.
 
 ## Triggers
+
 `/streamline-doc`, "streamline this doc", "make this more concise", "tighten that up"
 
 ## Args
+
 Optional path to a markdown file (absolute or relative to cwd). If omitted, infer from conversation context — the most recently discussed or edited markdown file. In `/do-work` mode, default to every doc touched in the current change set.
 
 ---
@@ -37,7 +39,7 @@ Apply in this order:
    - Don't mass-replace blindly — rewrite each site so the prose still reads well.
 6. **Sentence diet** — target <20 words per sentence. Active voice, imperative mood. "Register the extension" not "The extension should be registered".
 7. **Reorder for BLUF** — bottom line up front. Most critical info at the top of the doc and the top of each section. Definitions before examples. Decisions before rationale. If a later section is the actual headline, promote it.
-8. **Trim code blocks** — code in docs illustrates a concept; it is not the implementation. Strip imports, error handling, boilerplate, and unrelated fields until only the lines that demonstrate the point remain. Replace omitted regions with `// …` or `...`. Never write the code *for* the subject — if a snippet has grown into a working implementation, that's drift; cut it back.
+8. **Trim code blocks** — code in docs illustrates a concept; it is not the implementation. Strip imports, error handling, boilerplate, and unrelated fields until only the lines that demonstrate the point remain. Replace omitted regions with `// …` or `...`. Never write the code _for_ the subject — if a snippet has grown into a working implementation, that's drift; cut it back.
 
 ## Process
 

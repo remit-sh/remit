@@ -8,6 +8,7 @@ description: Mark the current issue as ready — sets the GitHub Project status 
 Sets the current issue's project status to "Ready" for team pickup. Run from any session when you're done steering and want the team to take over.
 
 ## Triggers
+
 `/ready`, "this is ready", "that one's ready", "set to ready", "mark as ready", "ready for team", "queue this up"
 
 ---
@@ -15,6 +16,7 @@ Sets the current issue's project status to "Ready" for team pickup. Run from any
 ## Step 1 — Identify the Issue
 
 Infer from branch name:
+
 ```bash
 BRANCH=$(git branch --show-current)
 ISSUE_NUM=$(echo "$BRANCH" | grep -oE '^[0-9]+')
@@ -50,6 +52,7 @@ gh project item-edit --project-id "$PROJECT_ID" --id "$ITEM_ID" --field-id "$STA
 ```
 
 If the issue is not yet in a project, add it first:
+
 ```bash
 gh project item-add "$PROJECT_NUM" --owner "$OWNER" --url "$(gh issue view "$ISSUE_NUM" --json url --jq '.url')"
 ```
@@ -59,12 +62,14 @@ gh project item-add "$PROJECT_NUM" --owner "$OWNER" --url "$(gh issue view "$ISS
 ## Step 3 — Confirm
 
 Show current state:
+
 ```bash
 gh issue view "$ISSUE_NUM" --json number,title,projectItems \
   --jq '"#\(.number) \(.title) — status: \(.projectItems[0].status.name)"'
 ```
 
 Report:
+
 ```
 #<N> "<title>" is ready.
 
@@ -76,5 +81,6 @@ The team coordinator will find this on its next backlog scan.
 ---
 
 ## Rules
+
 - Never modify the issue body or close the issue
 - If the issue is already "Ready", report it and stop

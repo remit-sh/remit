@@ -1,87 +1,72 @@
-# Ubiquitous Language
+# Domain Context
 
-Extract and formalize domain terminology from the current conversation into a consistent glossary, saved to a local file.
+Extract and formalize domain terminology from the current conversation into the project's CONTEXT.md files.
 
 ## Process
 
-1. **Scan the conversation** for domain-relevant nouns, verbs, and concepts
-2. **Identify problems**:
+1. **Read the context map** — check `CONTEXT-MAP.md` at root to understand existing contexts
+2. **Read the relevant CONTEXT.md** — identify which context the current conversation relates to
+3. **Scan the conversation** for domain-relevant nouns, verbs, and concepts
+4. **Identify problems**:
    - Same word used for different concepts (ambiguity)
    - Different words used for the same concept (synonyms)
    - Vague or overloaded terms
-3. **Propose a canonical glossary** with opinionated term choices
-4. **Write to `UBIQUITOUS_LANGUAGE.md`** in the working directory using the format below
-5. **Output a summary** inline in the conversation
+5. **Propose updates** — new terms, refined definitions, or reclassification
+6. **Update the relevant CONTEXT.md** in place
+7. **Output a summary** inline in the conversation
+
+## Which CONTEXT.md to update
+
+- Look at existing `CONTEXT.md` files in the repo (root and per-package) — `CONTEXT-MAP.md` indexes them
+- Place the term in the most specific context that owns it
+- Cross-cutting terms go in the root `CONTEXT.md`
+- If a new domain emerges that doesn't fit existing contexts → create a new `CONTEXT.md` and add it to `CONTEXT-MAP.md`
 
 ## Output Format
 
-Write a `UBIQUITOUS_LANGUAGE.md` file with this structure:
+Each CONTEXT.md uses this structure:
 
 ```md
-# Ubiquitous Language
+# {Context Name}
 
-## Order lifecycle
+{One or two sentence description of what this context is and why it exists.}
 
-| Term        | Definition                                              | Aliases to avoid      |
-| ----------- | ------------------------------------------------------- | --------------------- |
-| **Order**   | A customer's request to purchase one or more items      | Purchase, transaction |
-| **Invoice** | A request for payment sent to a customer after delivery | Bill, payment request |
+## Language
 
-## People
-
-| Term         | Definition                                  | Aliases to avoid       |
-| ------------ | ------------------------------------------- | ---------------------- |
-| **Customer** | A person or organization that places orders | Client, buyer, account |
-| **User**     | An authentication identity in the system    | Login, account         |
+**Term**:
+{A concise definition — one sentence max. What it IS, not what it does.}
+_Avoid_: Synonym1, synonym2
 
 ## Relationships
 
-- An **Invoice** belongs to exactly one **Customer**
-- An **Order** produces one or more **Invoices**
+- A **Term** produces one or more **OtherTerms**
 
 ## Example dialogue
 
-> **Dev:** "When a **Customer** places an **Order**, do we create the **Invoice** immediately?"
-> **Domain expert:** "No — an **Invoice** is only generated once a **Fulfillment** is confirmed. A single **Order** can produce multiple **Invoices** if items ship in separate **Shipments**."
-> **Dev:** "So if a **Shipment** is cancelled before dispatch, no **Invoice** exists for it?"
-> **Domain expert:** "Exactly. The **Invoice** lifecycle is tied to the **Fulfillment**, not the **Order**."
+> **Dev:** "Question using the terms?"
+> **Domain expert:** "Answer demonstrating precise usage."
 
 ## Flagged ambiguities
 
-- "account" was used to mean both **Customer** and **User** — these are distinct concepts: a **Customer** places orders, while a **User** is an authentication identity that may or may not represent a **Customer**.
+- "word" was used to mean both **X** and **Y** — resolved: these are distinct concepts.
 ```
 
 ## Rules
 
-- **Be opinionated.** When multiple words exist for the same concept, pick the best one and list the others as aliases to avoid.
-- **Flag conflicts explicitly.** If a term is used ambiguously in the conversation, call it out in the "Flagged ambiguities" section with a clear recommendation.
-- **Only include terms relevant for domain experts.** Skip the names of modules or classes unless they have meaning in the domain language.
-- **Keep definitions tight.** One sentence max. Define what it IS, not what it does.
-- **Show relationships.** Use bold term names and express cardinality where obvious.
-- **Only include domain terms.** Skip generic programming concepts (array, function, endpoint) unless they have domain-specific meaning.
-- **Group terms into multiple tables** when natural clusters emerge (e.g. by subdomain, lifecycle, or actor). Each group gets its own heading and table. If all terms belong to a single cohesive domain, one table is fine — don't force groupings.
-- **Write an example dialogue.** A short conversation (3-5 exchanges) between a dev and a domain expert that demonstrates how the terms interact naturally. The dialogue should clarify boundaries between related concepts and show terms being used precisely.
-
-<example>
-
-## Example dialogue
-
-> **Dev:** "How do I test the **sync service** without Docker?"
-
-> **Domain expert:** "Provide the **filesystem layer** instead of the **Docker layer**. It implements the same **Sandbox service** interface but uses a local directory as the **sandbox**."
-
-> **Dev:** "So **sync-in** still creates a **bundle** and unpacks it?"
-
-> **Domain expert:** "Exactly. The **sync service** doesn't know which layer it's talking to. It calls `exec` and `copyIn` — the **filesystem layer** just runs those as local shell commands."
-
-</example>
+- **Be opinionated.** Pick the best term and list others as aliases to avoid.
+- **Flag conflicts explicitly.** Call out ambiguity with a clear resolution.
+- **Keep definitions tight.** One sentence max. Define what it IS.
+- **Show relationships.** Bold term names, express cardinality where obvious.
+- **Only domain terms.** Skip generic programming concepts unless they have domain-specific meaning.
+- **Group by context.** Terms belong in the context where they're defined. A term used across contexts should live in the context that owns it and be referenced from others via the context map.
+- **Write an example dialogue.** 3-5 exchanges demonstrating precise usage and clarifying boundaries.
 
 ## Re-running
 
-When invoked again in the same conversation:
+When invoked again:
 
-1. Read the existing `UBIQUITOUS_LANGUAGE.md`
-2. Incorporate any new terms from subsequent discussion
-3. Update definitions if understanding has evolved
+1. Read `CONTEXT-MAP.md` and all referenced CONTEXT.md files
+2. Identify which context the new terms belong to
+3. Incorporate new terms, update definitions if understanding has evolved
 4. Re-flag any new ambiguities
-5. Rewrite the example dialogue to incorporate new terms
+5. Update example dialogues to incorporate new terms

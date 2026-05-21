@@ -47,7 +47,7 @@ Reuse the `osascript` adapter — `display dialog` covers multi-button choice an
   - **Scope:** `scope_for(agent_id)` / `assign_scope(agent_id, scope)`.
   - **Bundled-scope staging:** `set_pending(parent, scope)` / `take_pending(parent)`.
   - **Disable marker:** `is_disabled(agent_id)` / `disable(agent_id)`.
-  All keyed by [`AgentId`]; disable methods are conventionally called with the root agent's id (via `root_key(agent)`) but the trait doesn't enforce that distinction. Vocab: avoids "Session" in domain code per `UBIQUITOUS_LANGUAGE.md` ("Session" is Claude-Code-specific; the domain term is **Agent**).
+  All keyed by [`AgentId`]; disable methods are conventionally called with the root agent's id (via `root_key(agent)`) but the trait doesn't enforce that distinction. Vocab: avoids "Session" in domain code per `CONTEXT.md` ("Session" is Claude-Code-specific; the domain term is **Agent**).
 - `trait PromptLock { type Guard; fn acquire(&self, agent_id: &AgentId) -> Result<Self::Guard, PromptError>; }`. Blocking acquisition; queue serialises behind any in-flight prompt for the same root. The associated type keeps the file handle in the adapter; domain holds an opaque value whose only contract is "drop releases the lock." Kept separate from `AgentStore` because RAII guard semantics don't fit a CRUD-style "store" model.
 - `struct PromptingDeps<'a, P: Prompter, K: PromptLock> { prompter: &'a P, lock: &'a K }` — bundles the prompting-subsystem ports so `process_action`'s signature stays narrow. Lives in domain; adapters know nothing about it.
 - Extend `ClassifierLogger` with `fn log_event(&self, input: &ClassificationInput, event: &str)` for audit trail of state transitions inside `process_action` (lock waits, user choices, scope updates, disable confirms). See the **Audit logging** section below for the message catalogue.
@@ -286,7 +286,7 @@ TDD. Every behaviour gets a domain test against stub adapters first.
 
 ## Vocabulary additions
 
-Add to `docs/UBIQUITOUS_LANGUAGE.md` under the **Product** table:
+Add to `CONTEXT.md` under the **Product** table:
 
 | Term | Definition | Aliases to avoid |
 | --- | --- | --- |
@@ -318,4 +318,4 @@ Add to `docs/UBIQUITOUS_LANGUAGE.md` under the **Product** table:
 - `crates/claude-code-hook/src/tests.rs`: end-to-end with stubs.
 - `Cargo.toml`: add `prompt-lock` to workspace.
 - `docs/tn/README.md`: index entry.
-- `docs/UBIQUITOUS_LANGUAGE.md`: add `Update scope` and `Disable session` rows under the Product table.
+- `CONTEXT.md`: add `Update scope` and `Disable session` rows under the Product table.

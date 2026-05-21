@@ -18,7 +18,7 @@ tags: [classifier, agent-template, standing-guidance]
 
 ## Vocabulary
 
-This spec adds **Agent type** (under Agents) and **Agent template** (under Classification) to `docs/UBIQUITOUS_LANGUAGE.md`. See "Vocabulary update" at the end of this TN for the canonical entries. Both compose with the existing umbrella term **Standing guidance**.
+This spec adds **Agent type** (under Agents) and **Agent template** (under Classification) to `CONTEXT.md`. See "Vocabulary update" at the end of this TN for the canonical entries. Both compose with the existing umbrella term **Standing guidance**.
 
 ## Selection
 
@@ -238,7 +238,7 @@ LLM-behavioural verification (Green ↔ Red flip when a template is added) is ma
 
 ## Vocabulary update
 
-Add two entries to `docs/UBIQUITOUS_LANGUAGE.md`.
+Add two entries to `CONTEXT.md`.
 
 Under **Agents**:
 

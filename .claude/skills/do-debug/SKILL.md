@@ -8,6 +8,7 @@ description: Switches the development environment to a target worktree — resol
 Switches your active development environment to a target worktree in one command. Handles path resolution, VS Code window reuse, terminal context switching via tmux, and dev server startup.
 
 ## Triggers
+
 `/do-debug <branch-or-worktree-name>`, "switch to <branch>", "debug <branch>", "work on <worktree>"
 
 The branch/worktree name is required. If not provided, list available worktrees and ask.
@@ -24,14 +25,17 @@ PATH=$(git worktree list | grep "$TARGET" | awk '{print $1}')
 ```
 
 **If no match:** list all available worktrees and stop:
+
 ```bash
 git worktree list
 ```
+
 > "No worktree found matching `<target>`. Available worktrees above — which one did you mean?"
 
 **If multiple matches:** show them and ask the user to be more specific.
 
 **If match found:** confirm:
+
 > "Found worktree: `<path>` (branch: `<branch>`)"
 
 ---
@@ -45,6 +49,7 @@ code -r "$PATH"
 ```
 
 This swaps the active VS Code window to the new directory without opening a second window. If `code` is not on PATH, warn:
+
 > "VS Code CLI (`code`) not found. Install it via VS Code: Cmd+Shift+P → 'Shell Command: Install code in PATH'"
 
 ---
@@ -62,6 +67,7 @@ fi
 ```
 
 Check that a `dev` script exists:
+
 ```bash
 cat "$PATH/package.json" | grep '"dev"' 2>/dev/null
 ```
@@ -79,11 +85,14 @@ tmux send-keys "cd \"$PATH\" && $RUNNER run dev" Enter
 ```
 
 **If not inside tmux** (`$TMUX` is unset): fall back to printing the commands for the user to run manually:
+
 > "Not in a tmux session — run these commands in your terminal:
-> ```
+>
+> ````
 > cd "<path>"
 > <runner> run dev
 > ```"
+> ````
 
 **If tmux send-keys fails** (e.g. no active pane): same fallback — print the commands.
 
@@ -103,6 +112,7 @@ Dev server: Starting...
 ---
 
 ## Rules
+
 - Never open a second VS Code window — always use `code -r`
 - Never hardcode `npm` — always detect the package manager from lock files
 - If tmux isn't available, degrade gracefully — print the commands, don't fail silently

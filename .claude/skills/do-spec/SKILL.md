@@ -16,6 +16,7 @@ Guides the creation of a high-level design document for non-trivial work. The ou
 **Mindset:** There is no deadline. A spec written under pressure produces pressured code. Take the time to explore the design space fully — consider failure modes, edge cases, and alternative approaches before committing to a direction. The goal is a design that future readers will find obvious in hindsight.
 
 ## Triggers
+
 `/do-spec`, "do spec", "write the spec", "start the design", "let's spec this out"
 
 ---
@@ -23,22 +24,27 @@ Guides the creation of a high-level design document for non-trivial work. The ou
 ## Stage 1 — Issue Check
 
 Search GitHub for an existing issue before anything else:
+
 ```bash
 gh issue list --search "<feature description>" --state open
 ```
 
 **Found:** read the full issue, confirm with the user:
+
 ```bash
 gh issue view <number> --json title,body,labels,comments,state
 ```
+
 Show the number, title, and a one-line summary. Ask: "Is #N 'title' the correct issue?" Do not assume a match is correct.
 
 **Not found:** offer to create one:
+
 ```bash
 gh issue create --title "<imperative title>" --body "<problem, goals, context>"
 ```
 
 Add the `in-progress` label (create if needed):
+
 ```bash
 gh issue edit <number> --add-label "in-progress"
 ```
@@ -50,6 +56,7 @@ Do not proceed without a linked issue.
 ## Stage 2 — Orient
 
 Ask the user:
+
 - What are we designing? (one sentence — if they have existing notes or a draft, read them now)
 
 Per AGENT.md Rule #1 and TN-26.1, specs live under `docs/tn/` — the single numbered sequence for proposals, plans, research, and specs.
@@ -59,12 +66,12 @@ Per AGENT.md Rule #1 and TN-26.1, specs live under `docs/tn/` — the single num
 
    ```yaml
    ---
-   number: "YY.N"
+   number: 'YY.N'
    title: <short descriptive title>
-   kind: [spec]            # or [proposal, spec] if not yet agreed in principle
+   kind: [spec] # or [proposal, spec] if not yet agreed in principle
    status: draft
-   issue: "#<number>"
-   tags: [...]             # optional
+   issue: '#<number>'
+   tags: [...] # optional
    ---
    ```
 
@@ -75,6 +82,7 @@ Per AGENT.md Rule #1 and TN-26.1, specs live under `docs/tn/` — the single num
 ## Stage 3 — Problem Statement
 
 Collaboratively define:
+
 - **What problem does this solve?** If vague, ask: "What goes wrong today without this?"
 - **Why this approach?** Challenge alternatives if they exist: "Why not X?"
 - **Non-goals** — what is explicitly out of scope? If the user hasn't stated them, propose candidates.
@@ -88,6 +96,7 @@ Write `## Problem Statement` to the doc.
 ## Stage 4 — Goals & Constraints
 
 Collaboratively define:
+
 - **Functional goals** — what must it do? Again, the user knows these — prompt them to state them explicitly even if obvious. A bulleted list is fine.
 - **Non-functional requirements** — push for specifics. "Fast" is not a constraint. Ask: latency targets, throughput, consistency guarantees, failure tolerance, cost envelope.
 - **Technical constraints** — existing interfaces to honour, infrastructure boundaries, dependencies that must or must not be taken.
@@ -103,10 +112,12 @@ Before designing, check whether this problem maps to known patterns or establish
 **Why:** Recognising early that the design is essentially two-phase commit, write-ahead logging, saga pattern, etc. means established terminology can be used throughout the document. This makes the design immediately readable to anyone who knows the pattern, avoids reinventing vocabulary, and surfaces known failure modes and trade-offs that the pattern literature has already worked out.
 
 Search and propose:
+
 - **Named patterns** — does this map to a well-known distributed systems, database, or concurrency pattern? (e.g. two-phase commit, fencing tokens, saga, outbox pattern, CQRS, event sourcing, optimistic/pessimistic locking, write-ahead log)
 - **Established terminology** — if the user is using ad-hoc names for concepts that have standard names, note it and suggest alignment
 
 If a match is found:
+
 - Name it explicitly: "This is essentially X"
 - Note any divergence: "We diverge from the standard pattern in Y because Z"
 - Align the vocabulary in all subsequent sections
@@ -137,12 +148,13 @@ Write `## Design` to the doc progressively as sections are agreed.
 ## Stage 7 — Alternatives Considered
 
 For each significant design decision, document:
+
 - The alternative considered
 - Why it was rejected (one or two sentences — be specific)
 
 If the user hasn't articulated alternatives, prompt: "Did you consider X? Why did that lose?"
 
-This section is what distinguishes a design document from a specification dump. It records the decisions that *weren't* taken and why — invaluable for future readers and for agent context.
+This section is what distinguishes a design document from a specification dump. It records the decisions that _weren't_ taken and why — invaluable for future readers and for agent context.
 
 Write `## Alternatives Considered` to the doc.
 
@@ -159,6 +171,7 @@ Output a one-line summary: what was produced and where it lives.
 ---
 
 ## Rules
+
 - Never proceed past Stage 1 without a confirmed GitHub issue and `in-progress` label
 - Output is a document, not code. Short code snippets are fine to illustrate a concept (e.g. a key data structure, an algorithm step), but never write extensive code — that is `do-kick-off`'s job
 - Never write vague prose in the Design section — push for specifics

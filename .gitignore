@@ -9,3 +9,5 @@
 swift/.build/
 swift/.swiftpm/
 swift/Package.resolved
+/.agent-state/
+/.claude/settings.local.json

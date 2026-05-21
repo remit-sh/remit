@@ -9,6 +9,7 @@ disable-model-invocation: false
 **Single entry point for development work in a trunk-based repo.** Any change — new feature, bug fix, refactor, documentation, ADR, TN/PN — runs through this skill. Stages are the same; the reviewer set and extras adjust for the kind of change.
 
 ## Triggers
+
 `/do-work`, "start work", "pick up", "pick this up", "let's do this", "develop this"
 
 ---
@@ -17,15 +18,15 @@ disable-model-invocation: false
 
 Run in order. Don't skip. Each stage is its own skill — `do-work` is the orchestrator.
 
-| # | Stage | Skill | Code | Docs |
-|---|---|---|---|---|
-| 1 | Kick-off | `/do-kick-off` | ✓ | ✓ |
-| 2 | Plan | `/do-plan` | ✓ | ✓ (lighter) |
-| 3 | Develop | (write the code / doc) | ✓ | ✓ |
-| 4 | Review | `/do-review` | ✓ | ✓ (adjusted) |
-| 5 | Streamline doc | `/streamline-doc` | — | ✓ |
-| 6 | Ship | `/do-ship` | ✓ | ✓ |
-| 7 | Close | `/do-close` | ✓ | ✓ |
+| #   | Stage          | Skill                  | Code | Docs         |
+| --- | -------------- | ---------------------- | ---- | ------------ |
+| 1   | Kick-off       | `/do-kick-off`         | ✓    | ✓            |
+| 2   | Plan           | `/do-plan`             | ✓    | ✓ (lighter)  |
+| 3   | Develop        | (write the code / doc) | ✓    | ✓            |
+| 4   | Review         | `/do-review`           | ✓    | ✓ (adjusted) |
+| 5   | Streamline doc | `/streamline-doc`      | —    | ✓            |
+| 6   | Ship           | `/do-ship`             | ✓    | ✓            |
+| 7   | Close          | `/do-close`            | ✓    | ✓            |
 
 ---
 
@@ -45,13 +46,13 @@ If unclear, ask the user at kick-off.
 
 `/do-review` scales by change kind:
 
-| Reviewer | Code | Docs |
-|---|---|---|
-| Architect | When architectural implications | Always for ADRs / high-level design docs |
-| Security | Auth, permissions, data handling | Skip |
-| Code quality | Always | Skip |
-| Test coverage | Always | Skip |
-| Ubiquitous language | Naming in code | Always for docs (they set the terms) |
+| Reviewer            | Code                             | Docs                                     |
+| ------------------- | -------------------------------- | ---------------------------------------- |
+| Architect           | When architectural implications  | Always for ADRs / high-level design docs |
+| Security            | Auth, permissions, data handling | Skip                                     |
+| Code quality        | Always                           | Skip                                     |
+| Test coverage       | Always                           | Skip                                     |
+| Ubiquitous language | Naming in code                   | Always for docs (they set the terms)     |
 
 Doc-only reviews should still check: cross-references, placement per ADR-014, writing style (BLUF, active voice, short sentences), and freshness of linked material.
 
@@ -78,7 +79,7 @@ Never skip review and push just because code is written — those are the qualit
 
 ## Autonomous mode (under start-team)
 
-- No confirmation gates *except* the push-approval gate — `do-ship` Stage 2 always requires explicit approval (team lead in this mode, human in standalone)
+- No confirmation gates _except_ the push-approval gate — `do-ship` Stage 2 always requires explicit approval. Approver identity is set by **project CLAUDE.md** (`## Ship policy`); some projects allow team-lead approval in team sessions, others require human approval even in team sessions. The shared `do-ship` reads this — do not second-guess.
 - Report blockers via `SendMessage` to coordinator, don't wait
 - Each spawned agent runs `/do-work <issue>` as its single task
 

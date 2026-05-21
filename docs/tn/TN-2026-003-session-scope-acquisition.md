@@ -101,7 +101,7 @@ The `Agent` constructors enforce the self-referential-parent collapse. The hook 
 
 ## Vocabulary
 
-Per [`docs/UBIQUITOUS_LANGUAGE.md`](../UBIQUITOUS_LANGUAGE.md). `Agent` is the domain umbrella; `Session` is Claude-Code-specific runtime jargon, used only when discussing CC internals (the `session_id` field, env var, etc.). The previous `Session`/`SessionId`/`SubagentId` domain types are gone.
+Per [`CONTEXT.md`](../../CONTEXT.md). `Agent` is the domain umbrella; `Session` is Claude-Code-specific runtime jargon, used only when discussing CC internals (the `session_id` field, env var, etc.). The previous `Session`/`SessionId`/`SubagentId` domain types are gone.
 
 ## Out of scope (per #17)
 

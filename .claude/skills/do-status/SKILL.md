@@ -8,6 +8,7 @@ description: Dashboard of all active worktrees — branch, linked issue, GitHub 
 A read-only overview of all active work. Shows every worktree, what ticket it's linked to, where it is in the workflow (from GitHub Projects), and whether anything looks stale or needs action.
 
 ## Triggers
+
 `/do-status`, "what's in progress", "show worktrees", "what's open", "what am I working on"
 
 ---
@@ -59,13 +60,16 @@ Active worktrees
 ```
 
 **Status** column from GitHub Project status:
+
 - Backlog, Next, Ready, In Progress, Blocked, Needs Human, In Review, Done
 
 **Annotations:**
+
 - If status is "Blocked" or "Needs Human", show the "Blocked reason" field value on a second line
 - If `needs-human` label is present, append " [HUMAN]"
 
 **PR** column:
+
 - open / merged / closed-no-merge / — not raised
 
 ---
@@ -83,5 +87,6 @@ After the table, flag anything notable:
 ---
 
 ## Rules
+
 - Read-only — never modify issues, PRs, or branches
 - Never guess issue numbers if branch naming doesn't match the convention

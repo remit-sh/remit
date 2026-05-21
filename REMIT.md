@@ -56,6 +56,6 @@ Their subject text describes plans, questions, or upcoming work — not what the
 - Silent divergence from an active ADR/CDR. Flag it or draft a superseding record for approval.
 - Domain code importing adapter crates, or adapters importing each other.
 - Logging tool-input payloads or scope text beyond a truncated summary. No secrets on disk.
-- Bypassing the approval gate (`scripts/claude-check-approval.sh`) or pushing without a fresh `.claude/last-approval.json`.
+- Bypassing the approval gate (`scripts/claude-check-approval.sh`) or pushing without a fresh `.agent-state/last-approval.json`.
 - Editing `main` inside a worktree. Worktrees in hidden directories.
 - Work outside a GitHub issue.

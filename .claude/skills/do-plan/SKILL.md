@@ -15,6 +15,7 @@ Plans the work before any code is written. Run after `do-kick-off`.
 **Mindset:** You have unlimited time. Before committing to an approach, consider at least two alternatives and evaluate their trade-offs against the codebase's established patterns. The plan shapes everything downstream — a well-considered plan prevents rework, while a rushed plan guarantees it. Optimise for correctness and clarity over speed.
 
 ## Triggers
+
 `/do-plan`, "plan this", "let's plan", "write a plan"
 
 ---
@@ -22,6 +23,7 @@ Plans the work before any code is written. Run after `do-kick-off`.
 ## Autonomous Mode
 
 Plan without waiting for human approval. Once the plan is stable, assess whether specialist input is needed before proceeding:
+
 - Architectural implications → `architect`
 - Security-sensitive changes → `security-analyst`
 - Test strategy uncertainty → `test-coverage-agent`
@@ -39,7 +41,7 @@ Before designing anything, find how similar things are already done. This ensure
 - Check `AGENT.md` for conventions and patterns that govern this area
 - Note any ADRs or CDRs that constrain the approach
 
-The goal: by the end of this step you should know *how this codebase would naturally solve this problem*. The plan should extend that pattern, not invent a new one.
+The goal: by the end of this step you should know _how this codebase would naturally solve this problem_. The plan should extend that pattern, not invent a new one.
 
 ---
 
@@ -64,16 +66,17 @@ The goal: by the end of this step you should know *how this codebase would natur
 
    ```yaml
    ---
-   number: "YY.N"
+   number: 'YY.N'
    title: <short descriptive title>
    kind: [plan]
    status: active
-   issue: "#<number>"
-   tags: [...]           # optional
+   issue: '#<number>'
+   tags: [...] # optional
    ---
    ```
 
    Slug is a topic slug (e.g. `bdd-naming-conventions`), not `<issue>-<slug>`. The issue number belongs in front matter.
+
 3. Write the plan body. The plan is the spec — it lives in the repo, not in the issue.
 4. Run `/streamline-doc` on the TN before committing. Every TN produced by a skill passes through streamline — non-negotiable.
 
@@ -97,6 +100,7 @@ Incorporate any findings back into the plan. Post a one-line outcome comment on 
 ## Step 5 — Test strategy
 
 Agree before writing code:
+
 - **TDD always:** failing test first, then implementation
 - **Bug fixes:** failing reproduction test first, fix second
 
@@ -111,6 +115,7 @@ On complex issues it is valid — and common — to push the plan as a standalon
 The plan commit is small and self-contained. This is correct trunk-based behaviour, not a workaround.
 
 ## Rules
+
 - Never write code before the plan is agreed
 - Never begin Large work without a plan file
 - Issue comments are outcome summaries only — not process narration

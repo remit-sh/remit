@@ -18,6 +18,7 @@ Derives a low-level component design from an existing spec TN. The output tells 
 **Prerequisite:** the parent spec TN (`docs/tn/TN-YY.N-<slug>.md` with `kind: [spec]` or `[proposal, spec]`) must exist and be complete. If it doesn't, stop and direct the user to run `do-spec` first.
 
 ## Triggers
+
 `/do-spec-detail`, "do spec detail", "design the components", "design the classes", "LLD"
 
 ---
@@ -25,28 +26,29 @@ Derives a low-level component design from an existing spec TN. The output tells 
 ## Stage 1 — Orient
 
 Find and read the parent spec TN (`docs/tn/TN-YY.N-<slug>.md` with `kind: [spec]` or `[proposal, spec]`). If no spec TN exists for this work, stop:
+
 > "No spec found. Run `do-spec` first — component design without a spec produces the wrong components."
 
 Confirm scope with the user: are we designing the full system described in the spec, or a specific layer/module?
 
 **Decide whether a separate document is needed.** Read the spec and assess its size and complexity:
 
-| Signal | Decision |
-|--------|----------|
-| Spec is short (< ~150 lines) and the system has few components | Append component design as a `## Component Design` section directly to the parent spec TN |
-| Spec is long, or the component design will be substantial, or they will be referenced independently | Create a companion TN `docs/tn/TN-YY.N-<slug>-design.md` |
+| Signal                                                                                              | Decision                                                                                  |
+| --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Spec is short (< ~150 lines) and the system has few components                                      | Append component design as a `## Component Design` section directly to the parent spec TN |
+| Spec is long, or the component design will be substantial, or they will be referenced independently | Create a companion TN `docs/tn/TN-YY.N-<slug>-design.md`                                  |
 
 State the decision and why before proceeding. If appending to the parent, no new file is needed. If creating a companion TN, pick the next TN number (scan `docs/tn/` for `TN-<YY>.<N>-*.md` in the current year and increment `N`; reserve by committing the placeholder early per TN-26.1) and create it immediately with front matter:
 
 ```yaml
 ---
-number: "YY.N"
+number: 'YY.N'
 title: <short descriptive title> — Component Design
 kind: [spec]
 status: draft
-issue: "#<number>"
-related: ["TN-YY.N"]      # the parent spec TN
-tags: [...]               # optional
+issue: '#<number>'
+related: ['TN-YY.N'] # the parent spec TN
+tags: [...] # optional
 ---
 ```
 
@@ -59,11 +61,13 @@ Before designing anything, check whether existing libraries solve part of this p
 **Why:** It's common to design a complete solution for a problem that has already been solved, tested, and published. A library that handles 60% of the problem changes the component design significantly — the remaining work becomes an adapter or thin layer, not a full implementation.
 
 Search for:
+
 - **Libraries directly targeting this problem** — search npm/crates/PyPI/etc. for packages that tackle the core problem identified in the spec
 - **Libraries for sub-problems** — even if no single library covers everything, components like locking, scheduling, serialisation, or retry logic may have well-regarded solutions
 - **Prior art in the existing codebase** — grep for related patterns already in use; avoid introducing a second solution to a solved problem
 
 For each candidate library found:
+
 - State what it solves
 - Assess fit: does it match the constraints from the spec? (licence, performance, maintenance status, API style)
 - State a recommendation: adopt / adopt for sub-problem / reject (with reason)
@@ -77,6 +81,7 @@ Write `## Library Survey` to the doc.
 ## Stage 3 — Module Structure
 
 Define the top-level packages or modules:
+
 - What are the main units of organisation?
 - What are the entry points (public API surface)?
 - What is purely internal?
@@ -90,6 +95,7 @@ Write `## Module Structure` to the doc.
 ## Stage 4 — Classes & Interfaces
 
 For each module, define:
+
 - **Key classes** — name and responsibility in one sentence each. No more than one primary responsibility per class.
 - **Key interfaces** — the contracts between modules. Focus on what crosses a boundary.
 - **No implementation** — method signatures and types only, no bodies
@@ -103,6 +109,7 @@ Write `## Classes & Interfaces` to the doc.
 ## Stage 5 — Dependency Direction
 
 Map what depends on what:
+
 - Which modules are core domain (no external dependencies)?
 - Which are infrastructure or adapters (depend on core interfaces)?
 - Are there any dependency inversions needed to keep core clean?
@@ -126,6 +133,7 @@ Output a one-line summary: what was produced and where it lives.
 ---
 
 ## Rules
+
 - Output is a document, not code. Short snippets are fine to show interface signatures or type shapes, but never write implementations — that is `do-kick-off`'s job
 - Never proceed without reading the spec first
 - Never design a component for a problem a library already solves well

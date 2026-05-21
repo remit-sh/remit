@@ -21,7 +21,7 @@ pub struct AgentId(String);
 /// slot of [`StandingGuidance`]. Same charset as [`AgentId`]; rejects
 /// path-traversal characters by construction so `<type>.md` lookup inside
 /// `.remit/agent-templates/` is safe.
-/// Vocab: [Agent type](../../../docs/UBIQUITOUS_LANGUAGE.md#agents).
+/// Vocab: [Agent type](../../../CONTEXT.md#agents).
 #[nutype(
     validate(predicate = |s: &str| !s.is_empty()
         && s.len() <= 128

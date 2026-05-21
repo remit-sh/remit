@@ -28,7 +28,7 @@ Adapter → Adapter   ❌  never
 ```
 
 - Domain has zero infrastructure deps; trait definitions, domain types, domain services only.
-- Adapters live in their own crate, named by **role**, not technology (`file-classification-log`, not `ndjson-classification-log`).
+- Adapters live in their own crate, typically named **`<tech>-<role>`** (`file-classification-history`, `anthropic-classifier`, `swift-prompter`). Adapters are by nature tech-specific — tech in the name is fine. The role-naming rule applies to domain ports (traits), not adapter crates.
 - Wire types (hook payloads, HTTP DTOs) live in adapter crates; never leak into domain.
 - Composition roots (binary crates, e.g. `claude-code-hook`) are the only place adapters get wired to ports.
 

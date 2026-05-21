@@ -27,6 +27,16 @@ Three doc types, three roles:
 
 TN stack = working surface. ADRs/CDRs = ratified output.
 
+### Repo-root files
+
+Three files sit at repo root rather than `docs/` — they are tooling/agent-policy reads, not prose docs:
+
+- `CLAUDE.md` — agent rules.
+- `REMIT.md` — Project guidance, read by the Classifier on every call.
+- `CONTEXT.md` — vocabulary contract ([CDR-0001](CDR-0001-ubiquitous-language-contract.md)).
+
+Their stable, root-level paths are part of the contract; do not move them under `docs/`.
+
 ### Numbering
 
 - TNs: `TN-YYYY-NNN`, counter resets each calendar year. Filename: `TN-YYYY-NNN-slug.md`.
