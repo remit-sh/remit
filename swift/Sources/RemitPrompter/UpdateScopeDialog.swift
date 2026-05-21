@@ -1,21 +1,40 @@
 import AppKit
-import Foundation
+import SwiftUI
 
-/// "Set/Update the scope" — text input dialog with multi-line NSTextView.
-///
-/// Cmd-Return saves; Escape (handled by window close) cancels.
+// "Set/Update the scope" — multi-line text editor backed by NSTextView
+// (wrapped via NSViewRepresentable). Plain Return saves; Opt+Return inserts
+// a newline. The 1-second input arming gates typing too (via the text view
+// delegate's shouldChangeTextIn).
+
+// MARK: - Coordinator
+
 @MainActor
-final class UpdateScopeController: NSObject, NSTextViewDelegate {
-    let textView: NSTextView
+final class UpdateScopeCoordinator: ObservableObject {
+    @Published var inputArmed: Bool = false
+    let initialText: String
+
+    /// Live text from the editor. Mutated by the text view's delegate on
+    /// every keystroke, read by `commit()` at save time. Not `@Published`
+    /// because SwiftUI doesn't need to re-render on every keystroke.
+    var currentText: String
+
     private(set) var response: UpdateScopeResponse = .cancelled
 
-    init(textView: NSTextView) {
-        self.textView = textView
+    init(initialText: String) {
+        self.initialText = initialText
+        self.currentText = initialText
     }
 
-    @objc func save() {
-        let raw = textView.string
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    func arm() {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            self.inputArmed = true
+        }
+    }
+
+    func commit() {
+        guard inputArmed else { return }
+        let trimmed = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             response = .cancelled
         } else {
@@ -24,61 +43,67 @@ final class UpdateScopeController: NSObject, NSTextViewDelegate {
         NSApp.stopModal()
     }
 
-    @objc func cancel() {
+    func cancel() {
+        guard inputArmed else { return }
         response = .cancelled
         NSApp.stopModal()
     }
 
-    /// Plain Return saves; Opt+Return inserts a newline (AppKit binds that to
-    /// `insertNewlineIgnoringFieldEditor:` which we don't intercept).
-    func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-        if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-            save()
-            return true
+    /// Arrows in this dialog move the editor's caret — handled by NSTextView
+    /// before keys reach the hosting view. If a key does reach us, the editor
+    /// isn't focused; safe to ignore.
+    func handleArrow(_ direction: ArrowDirection) {}
+}
+
+// MARK: - ScopeEditor (NSTextView wrapper)
+
+/// NSTextView subclass that forwards Esc to a closure. By default NSTextView
+/// swallows Esc as `cancelOperation:`, so the dialog's hosting view never sees
+/// the key — we'd lose the cancel path while the editor is focused.
+final class EscapeForwardingTextView: NSTextView {
+    var onEsc: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 {  // Esc
+            onEsc?()
+            return
         }
-        return false
+        super.keyDown(with: event)
     }
 }
 
-enum UpdateScopeDialog {
-    @MainActor
-    static func run(_ req: UpdateScopeRequest) -> UpdateScopeResponse {
-        let isFirstTime = req.current == nil
-        let lead = isFirstTime
-            ? "Set the scope for this session."
-            : "Update the scope for this session."
+struct ScopeEditor: NSViewRepresentable {
+    let dialog: UpdateScopeCoordinator
 
-        let wordmark = Dialog.makeWordmark()
-        let cwd = Dialog.makeLabel(
-            Branding.displayDir(req.working_dir),
-            font: NSFont.userFixedPitchFont(ofSize: NSFont.smallSystemFontSize),
-            wraps: false
-        )
-        cwd.textColor = .secondaryLabelColor
-
-        let body = Dialog.makeLabel(lead)
-
-        // Bordered scroll view with an editable NSTextView. Word wrap on; text
-        // view tracks the scroll view's width so wrapping is visible without
-        // horizontal scrolling.
+    func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
-        scroll.borderType = .bezelBorder
+        scroll.borderType = .noBorder
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = false
         scroll.autohidesScrollers = true
-        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.drawsBackground = false
 
-        let textView = NSTextView()
+        let textView = EscapeForwardingTextView()
+        textView.onEsc = { [weak dialog] in dialog?.cancel() }
+        textView.delegate = context.coordinator
         textView.isEditable = true
         textView.isRichText = false
         textView.font = NSFont.userFixedPitchFont(ofSize: 13)
-        textView.string = req.current ?? ""
+        textView.textColor = .white
+        textView.insertionPointColor = .white
+        textView.backgroundColor = .clear
+        textView.drawsBackground = false
         textView.allowsUndo = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
-        textView.minSize = NSSize(width: 0, height: 80)
+        textView.textContainerInset = NSSize(width: 8, height: 8)
+
+        // Vertically-resizable text view that tracks the scroll view's width.
+        // Without these, the textView ignores its container and the cursor
+        // ends up centred in the visible bounds rather than at top-leading.
+        textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(
             width: CGFloat.greatestFiniteMagnitude,
             height: CGFloat.greatestFiniteMagnitude
@@ -86,56 +111,164 @@ enum UpdateScopeDialog {
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
-        textView.textContainerInset = NSSize(width: 8, height: 8)
         textView.textContainer?.containerSize = NSSize(
-            width: Branding.windowWidth - 2 * Branding.edgeInset - 24,
+            width: Branding.windowWidth,
             height: CGFloat.greatestFiniteMagnitude
         )
         textView.textContainer?.widthTracksTextView = true
 
-        scroll.documentView = textView
-
-        let controller = UpdateScopeController(textView: textView)
-        textView.delegate = controller
-        let delegate = CloseAsCancelDelegate()
-
-        let cancelButton = Dialog.makeButton(
-            title: "Cancel",
-            keyEquivalent: "\u{1B}", // Escape
-            target: controller,
-            action: #selector(UpdateScopeController.cancel)
+        // Set content AFTER resizable config so layout uses the right bounds.
+        // Use an attributed string so the foreground colour applies to the
+        // pre-loaded text too (textColor only applies to newly-typed runs).
+        let attrs: [NSAttributedString.Key: Any] = [
+            .foregroundColor: NSColor.white,
+            .font: NSFont.userFixedPitchFont(ofSize: 13) as Any,
+        ]
+        textView.textStorage?.setAttributedString(
+            NSAttributedString(string: dialog.initialText, attributes: attrs)
         )
-        // `keyEquivalent: "\r"` is for the visual default-button highlight,
-        // not for the Return action: the NSTextViewDelegate intercepts Return
-        // before AppKit dispatches to the default button. Leave it in for the
-        // pulse animation that tells the user which button Return targets.
-        let saveButton = Dialog.makeButton(
-            title: "Save",
-            keyEquivalent: "\r",
-            target: controller,
-            action: #selector(UpdateScopeController.save)
-        )
+        // Typing attributes for any later input.
+        textView.typingAttributes = attrs
 
-        let window = Dialog.makeWindow()
-
-        // Scroll view needs an explicit height + width to fill content width.
-        scroll.heightAnchor.constraint(equalToConstant: 80).isActive = true
-        scroll.widthAnchor.constraint(
-            equalToConstant: Branding.windowWidth - 2 * Branding.edgeInset
-        ).isActive = true
-
-        Dialog.assemble(
-            window: window,
-            delegate: delegate,
-            contentViews: [wordmark, cwd, body, scroll],
-            customSpacings: [(after: wordmark, spacing: Branding.headerSpacing)],
-            buttons: [cancelButton, saveButton],
-            defaultFocus: textView
-        )
-
-        _ = withExtendedLifetime((controller, delegate)) {
-            NSApp.runModal(for: window)
+        // Grab first responder once attached to a window so the user can
+        // start typing (and arrow keys move the caret rather than triggering
+        // the hosting view's onArrow handler).
+        DispatchQueue.main.async { [weak textView] in
+            textView?.window?.makeFirstResponder(textView)
         }
-        return controller.response
+
+        scroll.documentView = textView
+        return scroll
+    }
+
+    func updateNSView(_ nsView: NSScrollView, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(dialog: dialog)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        let dialog: UpdateScopeCoordinator
+
+        init(dialog: UpdateScopeCoordinator) {
+            self.dialog = dialog
+        }
+
+        // Gate typing on the input-arming flag. Keystrokes that arrive before
+        // the 1-second timer flips `inputArmed` are silently dropped.
+        func textShouldBeginEditing(_ textObject: NSText) -> Bool {
+            dialog.inputArmed
+        }
+
+        func textView(
+            _ textView: NSTextView,
+            shouldChangeTextIn affectedCharRange: NSRange,
+            replacementString: String?
+        ) -> Bool {
+            dialog.inputArmed
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            dialog.currentText = textView.string
+        }
+
+        /// Plain Return saves; Opt+Return inserts a newline (AppKit binds that
+        /// to `insertNewlineIgnoringFieldEditor:` which we don't intercept).
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                dialog.commit()
+                return true
+            }
+            return false
+        }
+    }
+}
+
+// MARK: - View
+
+struct UpdateScopeView: View {
+    let req: UpdateScopeRequest
+    @ObservedObject var coordinator: UpdateScopeCoordinator
+
+    private var leadCopy: String {
+        req.current == nil
+            ? "Set the scope for this session."
+            : "Update the scope for this session."
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: DialogTokens.sectionSpacing) {
+                Text(leadCopy)
+                    .foregroundStyle(DialogTokens.textSecondary)
+
+                InfoSection(caption: "Current directory") {
+                    HStack(spacing: 8) {
+                        Image(systemName: "folder")
+                            .font(.system(size: 12))
+                            .foregroundStyle(DialogTokens.textSecondary)
+                        Text(Branding.displayDir(req.working_dir))
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundStyle(DialogTokens.textSecondary)
+                    }
+                }
+
+                InfoSection(caption: "Scope") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "key")
+                                .font(.system(size: 14))
+                                .foregroundStyle(DialogTokens.textSecondary)
+                            Text("What is the agent working on?")
+                                .font(.system(size: 12))
+                                .foregroundStyle(DialogTokens.textSecondary)
+                        }
+                        ScopeEditor(dialog: coordinator)
+                            .frame(height: 100)
+                    }
+                }
+            }
+            .padding(DialogTokens.outerPadding)
+
+            DialogFooter(
+                hints: [
+                    DialogFooter.Hint(key: "RETURN", action: "save"),
+                    DialogFooter.Hint(key: "OPT+RETURN", action: "newline"),
+                    DialogFooter.Hint(key: "ESC", action: "cancel"),
+                ]
+            ) {
+                HStack(spacing: 8) {
+                    Button("Cancel", action: coordinator.cancel)
+                        .buttonStyle(.bordered)
+                    Button("Save", action: coordinator.commit)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!coordinator.inputArmed)
+                }
+            }
+        }
+        .frame(width: Branding.windowWidth, alignment: .top)
+        .background(DialogTokens.appBackground)
+        .task { coordinator.arm() }
+    }
+}
+
+// MARK: - Entry point
+
+enum UpdateScopeDialog {
+    @MainActor
+    static func run(_ req: UpdateScopeRequest) -> UpdateScopeResponse {
+        let coordinator = UpdateScopeCoordinator(initialText: req.current ?? "")
+        let view = UpdateScopeView(req: req, coordinator: coordinator)
+
+        Dialog.runHosted(
+            rootView: view,
+            onArrow: coordinator.handleArrow,
+            onReturn: coordinator.commit,
+            onEsc: coordinator.cancel
+        )
+
+        return coordinator.response
     }
 }

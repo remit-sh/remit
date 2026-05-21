@@ -22,3 +22,4 @@ See [TN-2026-001](TN-2026-001-technical-notes-and-doc-structure.md) for the syst
 | [TN-2026-012](TN-2026-012-scope-prompt-ui-fixes.md) | Scope-prompt UI fixes — paste, action, centred wordmark, scope echo | plan | active |
 | [TN-2026-013](TN-2026-013-remit-cli-logs.md) | `remit` CLI with `remit logs` + NDJSON migration | plan | active |
 | [TN-2026-014](TN-2026-014-swift-prompter-hang.md) | Swift prompter hang — surface-budget timeout + actionable Red | plan | active |
+| [TN-2026-015](TN-2026-015-prompter-dialogs-swiftui-visual-rebuild.md) | Prompter dialogs — SwiftUI visual rebuild | plan | draft |

@@ -169,7 +169,7 @@ fn request_carries_protocol_kind_and_fields() {
     assert_eq!(v["reason"], "out of bounds");
     assert_eq!(v["working_dir"], "/some/path");
     assert_eq!(v["tool_name"], "Bash");
-    assert_eq!(v["args_preview"], "command: rm -rf /tmp/foo");
+    assert_eq!(v["args_pretty"], "command: rm -rf /tmp/foo");
 }
 
 // ----- failure modes -----

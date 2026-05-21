@@ -36,9 +36,10 @@ struct ChooseRequest: Decodable {
     /// Tool name of the [`Action`] being authorised. Optional so requests from
     /// older hooks still decode; the dialog omits the row when absent.
     let tool_name: String?
-    /// Truncated args value the adapter selected via its per-tool allowlist.
-    /// Optional for the same backward-decode reason as `tool_name`.
-    let args_preview: String?
+    /// Prettified (`key: value, ...`) form of the action's args. Full content;
+    /// the dialog's scrollable ACTION ARGS box handles overflow. Optional for
+    /// the same backward-decode reason as `tool_name`.
+    let args_pretty: String?
 }
 
 struct UpdateScopeRequest: Decodable {

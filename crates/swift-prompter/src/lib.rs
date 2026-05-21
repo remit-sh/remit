@@ -44,14 +44,6 @@ const POLL_INTERVAL: Duration = Duration::from_millis(50);
 /// arrival is the adapter's only signal that the UI has surfaced.
 const READY_MARKER: &[u8] = b"READY";
 
-/// Total cap on `args_preview` length. Beyond this, render as head + middle
-/// indicator + tail (see [`truncate_head_tail`]).
-const ARGS_PREVIEW_MAX: usize = 500;
-/// Tail length retained when `args_preview` exceeds [`ARGS_PREVIEW_MAX`] —
-/// preserves the destructive suffix attackers often append after harmless
-/// preamble.
-const ARGS_PREVIEW_TAIL: usize = 80;
-
 #[cfg(test)]
 mod tests;
 
@@ -122,9 +114,7 @@ impl Prompter for SwiftPrompter {
         working_dir: &std::path::Path,
     ) -> Result<VerdictChoice, PromptError> {
         let tool_name = action.kind.as_ref();
-        let args_raw = action.args.as_ref();
-        let prettified = prettify_args(args_raw);
-        let args_preview = truncate_head_tail(&prettified, ARGS_PREVIEW_MAX, ARGS_PREVIEW_TAIL);
+        let args_pretty = prettify_args(action.args.as_ref());
         let request = ChooseRequest {
             protocol: PROTOCOL_VERSION,
             kind: "choose",
@@ -132,7 +122,7 @@ impl Prompter for SwiftPrompter {
             reason,
             working_dir: &working_dir.display().to_string(),
             tool_name,
-            args_preview: &args_preview,
+            args_pretty: &args_pretty,
         };
         let bytes = serde_json::to_vec(&request).map_err(unavailable)?;
         let stdout = self.run(&bytes)?;
@@ -203,7 +193,7 @@ struct ChooseRequest<'a> {
     reason: &'a str,
     working_dir: &'a str,
     tool_name: &'a str,
-    args_preview: &'a str,
+    args_pretty: &'a str,
 }
 
 #[derive(Serialize)]
@@ -445,18 +435,4 @@ fn render_value(v: &serde_json::Value) -> String {
         serde_json::Value::String(s) => s.clone(),
         _ => v.to_string(),
     }
-}
-
-/// Truncate `s` to at most `max` chars by `char` boundaries. When over the cap,
-/// emit `<head> … [truncated] … <tail>` so the destructive tail of pathological
-/// inputs (long heredocs, base64 blobs with a command appended) remains visible.
-fn truncate_head_tail(s: &str, max: usize, tail: usize) -> String {
-    let total = s.chars().count();
-    if total <= max {
-        return s.to_string();
-    }
-    let head = max.saturating_sub(tail);
-    let head_str: String = s.chars().take(head).collect();
-    let tail_str: String = s.chars().skip(total - tail).collect();
-    format!("{head_str} … [truncated] … {tail_str}")
 }

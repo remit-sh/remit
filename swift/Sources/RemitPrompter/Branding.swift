@@ -1,24 +1,13 @@
 import AppKit
 import Foundation
 
-/// Shared visual constants and asset loading. Layout values are chosen so all
-/// three dialogs share the same window width and button-row geometry, giving
-/// the three prompts visual continuity.
+/// Shared visual constants and asset loading. Fixed window width gives the
+/// three prompts visual continuity.
 enum Branding {
     static let windowWidth: CGFloat = 560
-    static let edgeInset: CGFloat = 24
-    /// Top inset above the wordmark. Smaller than `edgeInset` so the wordmark
-    /// sits closer to the title bar rather than floating in the middle of the
-    /// top padding.
-    static let topInset: CGFloat = 12
-    static let stackSpacing: CGFloat = 12
-    static let headerSpacing: CGFloat = 6   // wordmark → separator
-    static let buttonSpacing: CGFloat = 10
-    static let bottomBarHeight: CGFloat = 56  // native sheet-style button bar
-    static let wordmarkSize = NSSize(width: 110, height: 24)
 
     /// Loads the embedded wordmark. Returns `nil` only if the asset is missing
-    /// from the bundle (build-system bug). Dialogs handle nil by omitting the
+    /// from the bundle (build-system bug). Callers handle nil by omitting the
     /// image rather than crashing.
     static func wordmark() -> NSImage? {
         guard let url = Bundle.module.url(forResource: "Wordmark", withExtension: "png") else {

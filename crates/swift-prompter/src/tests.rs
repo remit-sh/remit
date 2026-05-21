@@ -14,7 +14,7 @@ fn choose_request_carries_protocol_version_and_kind() {
         reason: "r",
         working_dir: "/w",
         tool_name: "Bash",
-        args_preview: "ls -la",
+        args_pretty: "ls -la",
     };
     let v: serde_json::Value = serde_json::from_slice(&serde_json::to_vec(&req).unwrap()).unwrap();
     assert_eq!(v["protocol"], 1);
@@ -23,7 +23,7 @@ fn choose_request_carries_protocol_version_and_kind() {
     assert_eq!(v["reason"], "r");
     assert_eq!(v["working_dir"], "/w");
     assert_eq!(v["tool_name"], "Bash");
-    assert_eq!(v["args_preview"], "ls -la");
+    assert_eq!(v["args_pretty"], "ls -la");
 }
 
 #[test]
@@ -140,7 +140,7 @@ fn surface_timeout_is_30s() {
     assert_eq!(SURFACE_TIMEOUT, Duration::from_secs(30));
 }
 
-// ----- args_preview helpers -----
+// ----- args_pretty helpers -----
 
 #[test]
 fn prettify_args_single_string_field() {
@@ -203,37 +203,23 @@ fn prettify_args_shows_all_top_level_fields_no_field_hidden() {
 }
 
 #[test]
-fn truncate_head_tail_under_limit_unchanged() {
-    let s = "short string";
-    assert_eq!(truncate_head_tail(s, 500, 80), s);
-}
-
-#[test]
-fn truncate_head_tail_at_limit_unchanged() {
-    let s = "x".repeat(500);
-    assert_eq!(truncate_head_tail(&s, 500, 80), s);
-}
-
-#[test]
-fn truncate_head_tail_over_limit_keeps_head_and_tail() {
-    // Distinguishable head + tail so we can assert both are preserved.
-    let s: String = (0..1000).map(|i| if i < 500 { 'A' } else { 'Z' }).collect();
-    let out = truncate_head_tail(&s, 500, 80);
-    assert!(out.starts_with("AAA"), "head AAAs preserved: {out}");
-    assert!(out.ends_with("ZZZ"), "tail ZZZs preserved: {out}");
-    assert!(out.contains("… [truncated] …"), "indicator visible: {out}");
-}
-
-#[test]
-fn truncate_head_tail_handles_multibyte_chars_by_char_not_byte() {
-    // 600 emoji, each multi-byte. Truncation must operate on `chars()` to
-    // avoid splitting a code point.
-    let s: String = "🦀".repeat(600);
-    let out = truncate_head_tail(&s, 500, 80);
-    assert!(out.contains("… [truncated] …"));
-    // Head + tail = 500 emoji + indicator chars, all complete code points.
+fn prettify_args_passes_through_long_inputs_uncapped() {
+    // The scrollable args box in the dialog handles overflow visually — the
+    // adapter no longer truncates. The 64 KiB stdin cap is the only guard.
+    let long: String = "x".repeat(10_000);
+    let raw = format!(r#"{{"command":"{long}"}}"#);
+    let out = prettify_args(&raw);
     assert!(
-        out.chars()
-            .all(|c| c == '🦀' || " …[truncated]".contains(c))
+        out.starts_with("command: "),
+        "prettified prefix preserved: {out}"
+    );
+    assert!(
+        out.len() >= 10_000,
+        "long content not truncated: {}",
+        out.len()
+    );
+    assert!(
+        !out.contains("[truncated]"),
+        "no truncation indicator: {out}"
     );
 }
