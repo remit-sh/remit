@@ -6,9 +6,7 @@ disable-model-invocation: false
 
 # do-review
 
-You are a thorough, experienced code reviewer. You care about getting it right more than getting it done.
-
-Reviews the diff before it ships. Findings are applied inline — this is not a paper exercise. Run before `do-ship`.
+You are a thorough, experienced code reviewer. Getting it right matters more than getting it done. Findings are applied inline before `do-ship`, not noted for later.
 
 ## Triggers
 
@@ -35,15 +33,13 @@ A change can be both Architecture and Security — run both reviewers.
 
 ### Model selection
 
-Choose the model based on the complexity and risk of the task:
-
 | Model                | When                                                                                                                       |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `opus` (Opus 4.6 1M) | Architect — always. Security reviewer for complex auth/crypto. Any review where the stakes are high or the domain is deep. |
 | `sonnet` (default)   | Security analyst for standard findings. Code quality and test coverage reviewers.                                          |
 | `haiku`              | Documentation scan only — fast, low-stakes.                                                                                |
 
-When in doubt, use `opus`. The cost of a missed architectural finding far exceeds the cost of a more capable model.
+When in doubt, use `opus`. A missed architectural finding costs more than a stronger model.
 
 ### The reviewers
 
@@ -86,14 +82,13 @@ Lean on being more rigorous than fast. Quality is valued over speed in all cases
 
 ## Stage 3 — Apply findings
 
-**All findings must be implemented — there is no severity threshold for skipping.**
+**Enumerate first.** Before writing any code, list every finding from every reviewer with a disposition: **Implement / Disagree / Defer**. The summary must account for all of them.
 
-The only valid reasons not to implement a finding:
+- **Implement** — default. No justification needed.
+- **Disagree** — finding is wrong, inapplicable, or based on a misread. State reasoning in the summary.
+- **Defer** — only when applying the finding would expand the diff *significantly outside* the files already touched, or require architectural changes not in the original plan. Renames, extractions, restructuring, or non-trivial rewrites *within* the touched files do not qualify — those are in scope. Create a follow-up issue and note the gap in the summary.
 
-1. It requires a significant amount of new code or a significant refactor that is out of scope for this issue → flag it, create a follow-up issue, do not ship without documenting the gap
-2. The finding is genuinely disagreed with (wrong, inapplicable, or based on a misread of the code) → state the disagreement explicitly in the summary with reasoning
-
-"It's only a medium" is not a reason to skip. "We can do it later" is not a reason to skip. Every finding is either implemented, scoped to a follow-up issue, or explicitly disagreed with and documented.
+Severity is not a disposition. A "Low" finding inside touched files is Implement. "It's only a medium" and "we can do it later" are not valid reasons to defer.
 
 **Full rework escalation** — if the architect reviewer concludes that the implementation is so fundamentally misaligned (wrong layer, wrong pattern, wrong approach) that fixing individual findings would produce worse code than starting fresh:
 
@@ -123,28 +118,9 @@ Either case, rewrite to comply with existing architecture/conventions or raise w
 
 ## Stage 4 — Documentation review
 
-Scan the diff for what changed, then identify all documentation that may need updating. Documentation in this repo lives in several places:
+Refer to the repository's main instructions (root `CLAUDE.md` / `AGENT.md` / equivalent) for documentation locations and conventions.
 
-| Location                                               | Contains                                                           |
-| ------------------------------------------------------ | ------------------------------------------------------------------ |
-| `AGENT.md`                                             | Architecture, conventions, patterns — the agent source of truth    |
-| `docs/adr/`                                            | Architectural decision records (do not alter historic)             |
-| `docs/cdr/`                                            | Convention decision records (do not alter historic)                |
-| `docs/dev-practices/`                                  | Developer workflow and practices                                   |
-| `docs/packages/<pkg>/README.md`                        | Package-level API and usage docs                                   |
-| `docs/packages/<pkg>/extensions.md`                    | Extension point reference                                          |
-| `docs/packages/<pkg>/features/<feature>/extensions.md` | Feature-level extension docs                                       |
-| `docs/extensions/README.md`                            | Auto-generated extension catalogue — run `bun run docs:extensions` |
-| `docs/tn/`                                             | Technical notes — proposals, plans, specs, research                |
-
-For each area: does the diff add, remove, or change something this doc describes? If yes, update it.
-
-Pay particular attention to:
-
-- New or changed extension points → update extensions.md and run `bun run docs:extensions`
-- New or changed conventions → update AGENT.md and write a CDR if needed
-- New or changed architecture → requires approved ADR and update architecture-overview.md
-- Completed plans → mark status as complete
+For each doc area the repo declares: does the diff add, remove, or change something it describes? If yes, update it in the same change.
 
 Do not ship with stale documentation.
 
@@ -167,7 +143,7 @@ Docs updated: [list or "none"]
 
 ## Rules
 
-- **All findings must be implemented.** No severity threshold for skipping. Exceptions: out-of-scope refactor (create follow-up issue) or genuine disagreement (document reasoning).
+- **Every finding gets a disposition: Implement / Disagree / Defer.** Default is Implement. Defer only when applying would significantly expand the diff outside touched files or require unplanned architectural changes — not for severity, not for "later". Disagree requires reasoning in the summary.
 - Architect always uses `model: opus`
 - ADR/CDR escalation is a hard stop — no exceptions
 - Documentation must be updated before shipping — stale docs are a bug
