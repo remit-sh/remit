@@ -2,7 +2,7 @@
 
 ## Project
 
-Remit — Rust workspace, hexagonal. Classifier-backed hook deciding whether an agent's tool call matches the session scope. Crates: `domain/` (pure), `file-logger/` and `claude-code-hook/` (adapters), more adapters as they appear.
+Remit — classifier-backed hook deciding whether an agent's tool call matches the session scope. Polyglot workspace, hexagonal: a Rust core with adapters in whatever language the integration demands (Swift for the macOS prompter, shell for hooks, more to come). Anything inside this repo is part of the workspace.
 
 ## Conventions
 
@@ -19,6 +19,8 @@ Every developer follows the same loop, every time:
 - **`/do-work` is the entry point.** kick-off → plan → develop → review → push → close. Resume mid-stream if interrupted.
 - **TDD throughout.** Red → green → refactor. Tests first, then the code that makes them pass. Near-100% coverage. Unit tests beside source (`tests.rs`); integration tests under `tests/`.
 - **Approval gate is human-only.** `do-review` → human reviews uncommitted diff → approval → commit → push. Pre-push hook runs after approval. Never `--no-verify`.
+
+A scope set at the start of an issue covers the whole `/do-work` loop for that issue, including `do-review`, `do-ship`, and `do-close`. Shipping the work you're developing isn't a separate concern from developing it.
 
 ## Docs are core, not overhead
 
