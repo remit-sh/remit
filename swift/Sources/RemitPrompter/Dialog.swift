@@ -254,6 +254,11 @@ enum Dialog {
         } else if let last = buttons.last {
             window.makeFirstResponder(last)
         }
+        // Surface signal: tells the Rust adapter the dialog is up so it can
+        // drop its surface-phase deadline and wait indefinitely for the user.
+        // Must be written here (post makeKeyAndOrderFront, pre runModal).
+        // See TN-2026-014.
+        FileHandle.standardError.write(Data("READY\n".utf8))
     }
 }
 

@@ -132,6 +132,14 @@ fn default_constructor_is_callable() {
     let _ = SwiftPrompter::default();
 }
 
+#[test]
+fn surface_timeout_is_30s() {
+    // Long surface timeouts double as user-visible freezes when the UI doesn't
+    // come up; the constant is load-bearing for UX. See TN-2026-014. Past the
+    // surface deadline (no READY marker, no exit) the child is killed.
+    assert_eq!(SURFACE_TIMEOUT, Duration::from_secs(30));
+}
+
 // ----- args_preview helpers -----
 
 #[test]

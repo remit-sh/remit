@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use anthropic_classifier::AnthropicClassifier;
 use domain::{
     Action, ActionArgs, ActionKind, Agent, AgentId, AgentType, CallId, ClassificationHistoryWriter,
-    ClassificationInput, Classifier, PromptingDeps, Verdict, process_action,
+    ClassificationInput, Classifier, PromptingDeps, RedKind, Verdict, process_action,
 };
 use file_classification_history::FileClassificationHistoryWriter;
 use file_scope_store::FileAgentStore;
@@ -230,11 +230,34 @@ fn handle_pre_tool_use(
             let line = format_red_for_agent(&reason, agent_store, &classifier_input.agent.id);
             eprintln!("[dev-bypass] would have denied: {line}");
         }
-        Verdict::Red { reason, .. } => {
+        Verdict::Red { reason, kind } => {
             let line = format_red_for_agent(&reason, agent_store, &classifier_input.agent.id);
+            let line = match dev_bypass_hint(&kind) {
+                Some(hint) => format!("{line}\n\n{hint}"),
+                None => line,
+            };
             eprintln!("{line}");
             std::process::exit(2);
         }
+    }
+}
+
+/// User-facing recovery hint for Red kinds where the user can unstick the
+/// system by flipping a config flag. Only attached for failure-shaped Reds
+/// (prompter unavailable); never for genuine "out of scope" Reds, which would
+/// confusingly suggest bypassing a correct denial.
+fn dev_bypass_hint(kind: &RedKind) -> Option<&'static str> {
+    match kind {
+        RedKind::ScopeSetupUnavailable => {
+            Some("To bypass while debugging, set `dev_bypass = true` in ~/.remit/config.toml.")
+        }
+        RedKind::NoScopeRoot
+        | RedKind::ScopeSetupCancelled
+        | RedKind::SubagentMissingScope
+        | RedKind::StoreUnavailable
+        | RedKind::OutOfScope
+        | RedKind::ClassifierUnavailable
+        | RedKind::StandingGuidanceUnavailable => None,
     }
 }
 

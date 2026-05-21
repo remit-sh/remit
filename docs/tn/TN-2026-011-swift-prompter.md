@@ -94,7 +94,7 @@ Responses are tagged with `kind` matching the request — the adapter rejects an
 - On non-zero exit: **discard stdout entirely** (it may contain partial / leaked content). Map to `PromptError::Unavailable` with stderr in the source chain.
 - On zero exit: parse stdout as JSON; validate the response shape **matches the request kind** (e.g. `confirm_disable` may not return `{"choice": ...}`). Shape mismatch → `Unavailable`.
 - Cap stdin write to 64 KiB and stdout read to 64 KiB. Exceeded → kill child, `Unavailable`.
-- Wall-clock timeout of 5 minutes per call. Exceeded → kill child + drain, `Unavailable`. (Dialogs are user-blocking; a real user takes seconds, not minutes. 5 min is generous enough to cover a distracted user without wedging the hook permanently.)
+- Wall-clock timeout of 5 minutes per call. Exceeded → kill child + drain, `Unavailable`. (Dialogs are user-blocking; a real user takes seconds, not minutes. 5 min is generous enough to cover a distracted user without wedging the hook permanently.) **Superseded by [TN-2026-014](TN-2026-014-swift-prompter-hang.md): two-phase timeout — 30 s surface budget, then indefinite respond.**
 
 ### Cancellations vs errors
 
@@ -168,7 +168,7 @@ crates/swift-prompter/
 - Per-call:
   1. Spawn the binary, capture stdin/stdout/stderr.
   2. Write JSON request to stdin (≤ 64 KiB; oversize is a panic — internal bug, not user input).
-  3. Wait with a 5-minute wall-clock budget; on expiry kill child, drain pipes, return `Unavailable`.
+  3. Wait through a two-phase budget (surface, then respond) — see [TN-2026-014](TN-2026-014-swift-prompter-hang.md). Surface-budget expiry kills the child + drains pipes + returns `Unavailable`; post-READY waits are unbounded.
   4. On exit: if non-zero → discard stdout, return `Unavailable` with stderr in source chain.
   5. On zero exit: parse stdout JSON; validate response shape matches request kind; return parsed `VerdictChoice` / `Scope` / `bool`.
 - Stdout is **never** embedded in error chains (could leak `update_scope` text).
@@ -263,7 +263,7 @@ Two landings, deliberately split — a regression in the swap can be reverted wi
 
 ## Promoted into v1 from architect review
 
-- 5-minute wall-clock timeout per call.
+- 5-minute wall-clock timeout per call. *(Superseded by TN-2026-014 — two-phase 30 s surface + indefinite respond.)*
 - 64 KiB stdin/stdout size caps.
 - `"protocol": 1` field on every request; `"kind"` tag on every response.
 - Adapter validates response `kind` matches request `kind` — defends against wire drift.

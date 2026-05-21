@@ -408,6 +408,36 @@ fn format_red_for_agent_omits_scope_when_store_errors() {
     assert_eq!(out, "Action reads ~/.ssh");
 }
 
+// ----- dev_bypass_hint: only surfaces for ScopeSetupUnavailable -----
+
+#[test]
+fn dev_bypass_hint_present_for_scope_setup_unavailable() {
+    let hint = dev_bypass_hint(&RedKind::ScopeSetupUnavailable)
+        .expect("ScopeSetupUnavailable gets a hint");
+    assert!(hint.contains("dev_bypass"));
+    assert!(hint.contains("~/.remit/config.toml"));
+}
+
+#[test]
+fn dev_bypass_hint_absent_for_other_red_kinds() {
+    // Genuine Reds (out-of-scope, store failure, classifier failure) must not
+    // suggest dev-bypass — that would invite a user to silence a correct deny.
+    for kind in [
+        RedKind::NoScopeRoot,
+        RedKind::ScopeSetupCancelled,
+        RedKind::SubagentMissingScope,
+        RedKind::StoreUnavailable,
+        RedKind::OutOfScope,
+        RedKind::ClassifierUnavailable,
+        RedKind::StandingGuidanceUnavailable,
+    ] {
+        assert!(
+            dev_bypass_hint(&kind).is_none(),
+            "expected no hint for {kind:?}"
+        );
+    }
+}
+
 /// Snapshot the narration denylist so adding a new entry is a deliberate,
 /// review-visible change. If you want to add a field here, update the assertion too.
 #[test]

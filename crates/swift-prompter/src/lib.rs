@@ -2,10 +2,16 @@
 //! domain's [`Prompter`] port by spawning the binary per call, piping a JSON
 //! request to stdin and parsing a JSON response from stdout.
 //!
-//! See [`docs/tn/TN-2026-011-swift-prompter.md`] for the wire protocol.
+//! See [`docs/tn/TN-2026-011-swift-prompter.md`] for the wire protocol and
+//! [`docs/tn/TN-2026-014-swift-prompter-hang.md`] for the surface-budget
+//! timeout split.
 //!
 //! Hard rules enforced here:
-//! - 5-minute wall-clock timeout per call; expiry kills the child.
+//! - **Two-phase timeout.** The adapter waits up to [`SURFACE_TIMEOUT`] for the
+//!   binary either to emit `READY\n` on stderr (window is up — switch to
+//!   indefinite wait) or to exit. Past the deadline with no READY and no exit,
+//!   the child is killed and `Unavailable` is returned. Once READY is seen the
+//!   wait is unbounded — the user may step away from their machine.
 //! - 64 KiB cap on stdin write and stdout read.
 //! - Non-zero exit ⇒ [`PromptError::Unavailable`] with **stderr** in the source
 //!   chain. Stdout is silently discarded — it may contain user-typed scope
@@ -13,9 +19,10 @@
 //! - Response shape is validated against the request kind: a `confirm_disable`
 //!   reply to a `choose` request fails closed.
 
-use std::io::{Read, Write};
+use std::io::{BufRead, Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::mpsc::{Sender, channel};
 use std::time::{Duration, Instant};
 
 use domain::{Action, PromptError, Prompter, Scope, VerdictChoice};
@@ -26,8 +33,16 @@ const MAX_BYTES: usize = 64 * 1024;
 /// Cap stderr length included in error chains so a chatty binary can't bloat
 /// the audit log on every failure.
 const MAX_STDERR_IN_ERROR: usize = 4 * 1024;
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
+/// Surface phase deadline: how long the adapter waits for the binary to emit
+/// `READY\n` on stderr (signalling the window is up). Past this, the child is
+/// killed. Tuned to be long enough for cold-start AppKit init, short enough
+/// that a hang doesn't freeze the hook noticeably.
+const SURFACE_TIMEOUT: Duration = Duration::from_secs(30);
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
+/// Stderr line the Swift binary writes immediately after
+/// `window.makeKeyAndOrderFront(nil)` and before `NSApp.runModal(for:)`. Its
+/// arrival is the adapter's only signal that the UI has surfaced.
+const READY_MARKER: &[u8] = b"READY";
 
 /// Total cap on `args_preview` length. Beyond this, render as head + middle
 /// indicator + tail (see [`truncate_head_tail`]).
@@ -44,17 +59,17 @@ mod tests;
 ///
 /// `new()` resolves the binary path lazily on each call so users can swap
 /// binaries on disk without restarting the host. Tests override via
-/// `with_binary` / `with_timeout`.
+/// `with_binary` / `with_surface_timeout`.
 pub struct SwiftPrompter {
     binary_override: Option<PathBuf>,
-    timeout: Duration,
+    surface_timeout: Duration,
 }
 
 impl SwiftPrompter {
     pub fn new() -> Self {
         Self {
             binary_override: None,
-            timeout: DEFAULT_TIMEOUT,
+            surface_timeout: SURFACE_TIMEOUT,
         }
     }
 
@@ -64,10 +79,10 @@ impl SwiftPrompter {
         self
     }
 
-    /// Override the per-call timeout. Tests use this to exercise the
-    /// hung-child path without a real 5-minute wait.
-    pub fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = timeout;
+    /// Override the surface-phase deadline. Tests use this to exercise the
+    /// never-surfaces path without a real 30-second wait.
+    pub fn with_surface_timeout(mut self, timeout: Duration) -> Self {
+        self.surface_timeout = timeout;
         self
     }
 
@@ -240,9 +255,10 @@ fn check_kind(actual: &str, expected: &str) -> Result<(), PromptError> {
 }
 
 impl SwiftPrompter {
-    /// Spawn the binary, write `request`, wait with the configured timeout,
-    /// return stdout (capped at 64 KiB). Non-zero exit ⇒ `Unavailable` with
-    /// stderr in the chain; stdout is silently discarded in that case.
+    /// Spawn the binary, write `request`, wait through two phases (surface
+    /// budget, then indefinite respond), return stdout capped at 64 KiB.
+    /// Non-zero exit ⇒ `Unavailable` with stderr in the chain; stdout is
+    /// silently discarded in that case.
     fn run(&self, request: &[u8]) -> Result<Vec<u8>, PromptError> {
         if request.len() > MAX_BYTES {
             return Err(unavailable_msg(format!(
@@ -264,35 +280,57 @@ impl SwiftPrompter {
             // Dropping stdin closes the pipe and signals EOF to the child.
         }
 
-        let start = Instant::now();
+        // Background-read stderr line by line. The thread blocks on a real
+        // read; the main loop polls a non-blocking channel and so stays
+        // responsive to `try_wait` + the surface deadline.
+        let stderr_pipe = child.stderr.take().expect("stderr piped");
+        let (tx, rx) = channel::<StderrEvent>();
+        let stderr_thread = std::thread::spawn(move || read_stderr_lines(stderr_pipe, tx));
+
+        let surface_deadline = Instant::now() + self.surface_timeout;
+        let mut surfaced = false;
+        let mut stderr_buf: Vec<u8> = Vec::new();
+
         let status = loop {
-            match child.try_wait().map_err(unavailable)? {
-                Some(status) => break status,
-                None if start.elapsed() > self.timeout => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(unavailable_msg(format!(
-                        "prompter timed out after {:?}",
-                        self.timeout
-                    )));
+            // Drain any pending stderr events without blocking.
+            while let Ok(ev) = rx.try_recv() {
+                match ev {
+                    StderrEvent::Ready => surfaced = true,
+                    StderrEvent::Line(bytes) => append_capped(&mut stderr_buf, &bytes),
                 }
-                None => std::thread::sleep(POLL_INTERVAL),
             }
+
+            if let Some(status) = child.try_wait().map_err(unavailable)? {
+                break status;
+            }
+
+            if !surfaced && Instant::now() > surface_deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = stderr_thread.join();
+                return Err(unavailable_msg(format!(
+                    "prompter did not surface within {:?}",
+                    self.surface_timeout
+                )));
+            }
+
+            std::thread::sleep(POLL_INTERVAL);
         };
 
-        // Read at most MAX_BYTES + 1 — anything more means oversize.
+        // Stderr thread exits naturally when the child closes the pipe on exit.
+        let _ = stderr_thread.join();
+        while let Ok(ev) = rx.try_recv() {
+            match ev {
+                StderrEvent::Ready => {} // post-exit READY is meaningless; ignore
+                StderrEvent::Line(bytes) => append_capped(&mut stderr_buf, &bytes),
+            }
+        }
+
         let mut stdout = Vec::with_capacity(1024);
         if let Some(mut s) = child.stdout.take() {
             s.by_ref()
                 .take((MAX_BYTES + 1) as u64)
                 .read_to_end(&mut stdout)
-                .map_err(unavailable)?;
-        }
-        let mut stderr = Vec::with_capacity(256);
-        if let Some(mut s) = child.stderr.take() {
-            s.by_ref()
-                .take((MAX_BYTES + 1) as u64)
-                .read_to_end(&mut stderr)
                 .map_err(unavailable)?;
         }
 
@@ -303,10 +341,10 @@ impl SwiftPrompter {
         }
 
         if !status.success() {
-            if stderr.len() > MAX_STDERR_IN_ERROR {
-                stderr.truncate(MAX_STDERR_IN_ERROR);
+            if stderr_buf.len() > MAX_STDERR_IN_ERROR {
+                stderr_buf.truncate(MAX_STDERR_IN_ERROR);
             }
-            let stderr_msg = String::from_utf8_lossy(&stderr).trim().to_string();
+            let stderr_msg = String::from_utf8_lossy(&stderr_buf).trim().to_string();
             return Err(unavailable_msg(format!(
                 "prompter exited with status {:?}: {}",
                 status.code(),
@@ -316,6 +354,56 @@ impl SwiftPrompter {
 
         Ok(stdout)
     }
+}
+
+/// Stderr-thread → main-loop messages. The READY marker is consumed by the
+/// thread (turned into a `Ready` event) so it never appears in `stderr_buf`
+/// or error chains.
+enum StderrEvent {
+    Ready,
+    Line(Vec<u8>),
+}
+
+fn read_stderr_lines(pipe: std::process::ChildStderr, tx: Sender<StderrEvent>) {
+    let mut reader = std::io::BufReader::new(pipe);
+    let mut buf = Vec::new();
+    // Cumulative non-READY bytes sent to the main loop. Past [`MAX_BYTES`] we
+    // keep reading (so the child can't block on a full pipe) but stop emitting
+    // `Line` events — caps the channel's in-flight queue against a chatty or
+    // malicious binary.
+    let mut bytes_sent: usize = 0;
+    loop {
+        buf.clear();
+        match reader.read_until(b'\n', &mut buf) {
+            Ok(0) | Err(_) => break, // EOF or read failure
+            Ok(_) => {}
+        }
+        let trimmed = strip_line_ending(&buf);
+        let event = if trimmed == READY_MARKER {
+            StderrEvent::Ready
+        } else if bytes_sent <= MAX_BYTES {
+            bytes_sent = bytes_sent.saturating_add(buf.len());
+            StderrEvent::Line(buf.clone())
+        } else {
+            continue; // past cap — keep draining the pipe, drop the line
+        };
+        if tx.send(event).is_err() {
+            break; // receiver dropped
+        }
+    }
+}
+
+fn strip_line_ending(bytes: &[u8]) -> &[u8] {
+    let without_lf = bytes.strip_suffix(b"\n").unwrap_or(bytes);
+    without_lf.strip_suffix(b"\r").unwrap_or(without_lf)
+}
+
+/// Append `bytes` to `buf`, refusing to grow `buf` beyond [`MAX_BYTES`] + 1.
+/// Keeps the audit-log error chain bounded for a chatty binary.
+fn append_capped(buf: &mut Vec<u8>, bytes: &[u8]) {
+    let remaining = (MAX_BYTES + 1).saturating_sub(buf.len());
+    let take = remaining.min(bytes.len());
+    buf.extend_from_slice(&bytes[..take]);
 }
 
 fn unavailable<E: std::error::Error + Send + Sync + 'static>(e: E) -> PromptError {

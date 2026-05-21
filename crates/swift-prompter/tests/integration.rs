@@ -31,7 +31,7 @@ fn prompter_with(script: &str) -> (SwiftPrompter, tempfile::TempDir) {
     let (path, dir) = fake_binary(script);
     let p = SwiftPrompter::new()
         .with_binary(path)
-        .with_timeout(Duration::from_secs(30));
+        .with_surface_timeout(Duration::from_secs(30));
     (p, dir)
 }
 
@@ -151,7 +151,7 @@ fn request_carries_protocol_kind_and_fields() {
     let (path, _d) = fake_binary(&script);
     let p = SwiftPrompter::new()
         .with_binary(path)
-        .with_timeout(Duration::from_secs(30));
+        .with_surface_timeout(Duration::from_secs(30));
     let _ = p
         .choose(
             &scope("my scope"),
@@ -218,7 +218,7 @@ exit 1"#,
 fn binary_missing_maps_to_unavailable() {
     let p = SwiftPrompter::new()
         .with_binary(PathBuf::from("/definitely/does/not/exist/remit-prompter"))
-        .with_timeout(Duration::from_secs(30));
+        .with_surface_timeout(Duration::from_secs(30));
     let err = p
         .choose(&scope("s"), &bash_action(), "r", Path::new("/w"))
         .unwrap_err();
@@ -226,21 +226,100 @@ fn binary_missing_maps_to_unavailable() {
 }
 
 #[test]
-fn hung_child_is_killed_after_timeout() {
+fn no_ready_marker_is_killed_at_surface_deadline() {
+    // Binary never emits READY and never exits — the surface deadline fires,
+    // the child is killed, and the adapter returns Unavailable.
     let (path, _d) = fake_binary("sleep 30");
     let p = SwiftPrompter::new()
         .with_binary(path)
-        .with_timeout(Duration::from_millis(300));
+        .with_surface_timeout(Duration::from_millis(300));
     let start = std::time::Instant::now();
     let err = p
         .choose(&scope("s"), &bash_action(), "r", Path::new("/w"))
         .unwrap_err();
     let elapsed = start.elapsed();
-    assert!(matches!(err, PromptError::Unavailable(_)));
+    let PromptError::Unavailable(boxed) = err else {
+        panic!("expected Unavailable");
+    };
+    let msg = format!("{boxed}");
+    assert!(
+        msg.contains("did not surface"),
+        "surface-deadline message: {msg}"
+    );
     assert!(
         elapsed < Duration::from_secs(5),
-        "timeout should fire quickly, took {elapsed:?}"
+        "surface deadline should fire quickly, took {elapsed:?}"
     );
+}
+
+#[test]
+fn ready_marker_unlocks_indefinite_wait() {
+    // Binary emits READY, then takes longer than the surface deadline before
+    // writing its response. The adapter must NOT time out — once READY is
+    // seen, the wait is unbounded.
+    //
+    // Surface budget set to 5 s (room for shell-spawn under parallel CI/test
+    // load) and the post-READY sleep at 10 s so the assertion still proves
+    // "respond can outrun the surface deadline".
+    let (path, _d) = fake_binary(
+        r#"printf 'READY\n' >&2
+sleep 10
+echo '{"kind":"choose","choice":"allow"}'"#,
+    );
+    let p = SwiftPrompter::new()
+        .with_binary(path)
+        .with_surface_timeout(Duration::from_secs(5));
+    let v = p
+        .choose(&scope("s"), &bash_action(), "r", Path::new("/w"))
+        .expect("response returned despite slow respond phase");
+    assert_eq!(v, VerdictChoice::Allow);
+}
+
+#[test]
+fn ready_marker_does_not_leak_into_error_chain() {
+    // After READY, the binary crashes with stderr noise. The READY line
+    // itself is consumed by the stderr-reader thread and must not appear
+    // in the resulting Unavailable error.
+    let (path, _d) = fake_binary(
+        r#"printf 'READY\n' >&2
+echo "operator error" >&2
+exit 1"#,
+    );
+    let p = SwiftPrompter::new()
+        .with_binary(path)
+        .with_surface_timeout(Duration::from_secs(3));
+    let err = p
+        .choose(&scope("s"), &bash_action(), "r", Path::new("/w"))
+        .unwrap_err();
+    let PromptError::Unavailable(boxed) = err else {
+        panic!("expected Unavailable");
+    };
+    let msg = format!("{boxed}");
+    assert!(msg.contains("operator error"));
+    assert!(
+        !msg.contains("READY"),
+        "READY leaked into error chain: {msg}"
+    );
+}
+
+#[test]
+fn ready_marker_works_alongside_other_stderr_lines() {
+    // Other unrelated stderr lines before / after READY don't suppress its
+    // detection (line-anchored match on the dedicated token).
+    let (path, _d) = fake_binary(
+        r#"printf 'startup noise\n' >&2
+printf 'READY\n' >&2
+printf 'more noise\n' >&2
+sleep 10
+echo '{"kind":"choose","choice":"deny"}'"#,
+    );
+    let p = SwiftPrompter::new()
+        .with_binary(path)
+        .with_surface_timeout(Duration::from_secs(5));
+    let v = p
+        .choose(&scope("s"), &bash_action(), "r", Path::new("/w"))
+        .unwrap();
+    assert_eq!(v, VerdictChoice::Deny);
 }
 
 #[test]
