@@ -35,6 +35,16 @@ Doc work is development work. `docs/` is the primary medium of design, decision,
 - `just test` — full test run.
 - `gh` for all issue and project interaction.
 
+## Agent bookkeeping
+
+A handful of tools are bookkeeping rather than work product, and appear routinely in every session here:
+
+- `TaskCreate`, `TaskUpdate`, `TodoWrite` — the agent organising its own intent.
+- `AskUserQuestion` — the agent checking in with the human.
+- `ScheduleWakeup` and similar — agent cadence.
+
+Their subject text describes plans, questions, or upcoming work — not what the tool itself does. A `TaskCreate` whose subject mentions an unrelated topic is the agent noting "I should think about X later", not doing X.
+
 ## Out of scope
 
 - Code changes without the matching doc update.
