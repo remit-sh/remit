@@ -20,6 +20,8 @@ Every developer follows the same loop, every time:
 - **TDD throughout.** Red → green → refactor. Tests first, then the code that makes them pass. Near-100% coverage. Unit tests beside source (`tests.rs`); integration tests under `tests/`.
 - **Approval gate is human-only.** `do-review` → human reviews uncommitted diff → approval → commit → push. Pre-push hook runs after approval. Never `--no-verify`.
 
+"Direct to `main`" / "trunk-based" / "no PR" means no pull request — not no review. Every push still passes through `do-review`, human approval, the approval marker, and the pre-push hook. The absence of a PR is not the absence of a gate.
+
 A scope set at the start of an issue covers the whole `/do-work` loop for that issue, including `do-review`, `do-ship`, and `do-close`. Shipping the work you're developing isn't a separate concern from developing it.
 
 ## Docs are core, not overhead
