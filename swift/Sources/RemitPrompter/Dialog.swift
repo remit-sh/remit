@@ -75,6 +75,8 @@ enum Dialog {
     /// is driven by the hosted SwiftUI content's intrinsic size.
     @MainActor
     static func makeWindow() -> NSWindow {
+        // Height is a placeholder; the hosted SwiftUI content's intrinsic
+        // size drives the final window height after layout.
         let rect = NSRect(x: 0, y: 0, width: Branding.windowWidth, height: 200)
         let window = NSWindow(
             contentRect: rect,
@@ -91,17 +93,56 @@ enum Dialog {
     }
 }
 
+// MARK: - AppKit bridge: KeyHandlingHostingView
+
+enum ArrowDirection {
+    case up, down, left, right
+}
+
+/// `NSHostingView` subclass that maps arrow / Return / Esc keys to
+/// caller-supplied closures. Anything else falls through to `super`, so a
+/// focused `TextEditor` keeps its normal text-editing behaviour.
+final class KeyHandlingHostingView<Content: View>: NSHostingView<Content> {
+    var onArrow: ((ArrowDirection) -> Void)?
+    var onReturn: (() -> Void)?
+    var onEsc: (() -> Void)?
+
+    override var acceptsFirstResponder: Bool { true }
+
+    @MainActor required init(rootView: Content) {
+        super.init(rootView: rootView)
+    }
+
+    @MainActor required dynamic init?(coder aDecoder: NSCoder) {
+        super.init(coder: aDecoder)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard
+            let chars = event.charactersIgnoringModifiers,
+            let scalar = chars.unicodeScalars.first
+        else {
+            super.keyDown(with: event)
+            return
+        }
+        switch Int(scalar.value) {
+        case 0xF700: onArrow?(.up)
+        case 0xF701: onArrow?(.down)
+        case 0xF702: onArrow?(.left)
+        case 0xF703: onArrow?(.right)
+        case 0x000D, 0x0003: onReturn?()  // Return / numpad Enter
+        case 0x001B: onEsc?()
+        default: super.keyDown(with: event)
+        }
+    }
+}
+
 /// Window-close-button handler. Routes the close gesture (red traffic light or
 /// our custom title-bar X) through the supplied closure so the dialog
 /// coordinator can record a `cancelled` response before the modal stops.
 @MainActor
 final class CloseAsCancelDelegate: NSObject, NSWindowDelegate {
     let onClose: () -> Void
-
-    override init() {
-        self.onClose = { NSApp.stopModal(withCode: .cancel) }
-        super.init()
-    }
 
     init(onClose: @escaping () -> Void) {
         self.onClose = onClose

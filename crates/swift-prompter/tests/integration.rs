@@ -359,8 +359,8 @@ fn response_missing_kind_is_unavailable() {
 }
 
 #[test]
-fn args_preview_never_appears_in_error_chain() {
-    // The action args / args_preview / tool_name make it to stdin but must
+fn args_pretty_never_appears_in_error_chain() {
+    // The action args / args_pretty / tool_name make it to stdin but must
     // never appear on the error path — they may contain sensitive content
     // (paths the user is reviewing, command strings, etc.). Forces a
     // non-zero exit so the adapter's Unavailable mapping runs, then asserts
@@ -390,7 +390,7 @@ exit 1"#,
     }
     assert!(
         !msg.contains(secret_marker),
-        "args_preview leaked to error chain: {msg}"
+        "args_pretty leaked to error chain: {msg}"
     );
     assert!(
         !msg.contains(tool_marker),

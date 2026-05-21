@@ -26,10 +26,7 @@ final class UpdateScopeCoordinator: ObservableObject {
     }
 
     func arm() {
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            self.inputArmed = true
-        }
+        scheduleInputArming { [weak self] in self?.inputArmed = true }
     }
 
     func commit() {
@@ -44,7 +41,9 @@ final class UpdateScopeCoordinator: ObservableObject {
     }
 
     func cancel() {
-        guard inputArmed else { return }
+        // Cancel is not gated by `inputArmed`: arming exists to absorb a
+        // terminal Enter that hits the dialog before the user reads it,
+        // not to block deliberate Esc/close-X escape gestures.
         response = .cancelled
         NSApp.stopModal()
     }
@@ -73,7 +72,7 @@ final class EscapeForwardingTextView: NSTextView {
 }
 
 struct ScopeEditor: NSViewRepresentable {
-    let dialog: UpdateScopeCoordinator
+    let coordinator: UpdateScopeCoordinator
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
@@ -84,7 +83,7 @@ struct ScopeEditor: NSViewRepresentable {
         scroll.drawsBackground = false
 
         let textView = EscapeForwardingTextView()
-        textView.onEsc = { [weak dialog] in dialog?.cancel() }
+        textView.onEsc = { [weak coordinator] in coordinator?.cancel() }
         textView.delegate = context.coordinator
         textView.isEditable = true
         textView.isRichText = false
@@ -125,7 +124,7 @@ struct ScopeEditor: NSViewRepresentable {
             .font: NSFont.userFixedPitchFont(ofSize: 13) as Any,
         ]
         textView.textStorage?.setAttributedString(
-            NSAttributedString(string: dialog.initialText, attributes: attrs)
+            NSAttributedString(string: coordinator.initialText, attributes: attrs)
         )
         // Typing attributes for any later input.
         textView.typingAttributes = attrs
@@ -143,12 +142,17 @@ struct ScopeEditor: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {}
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(dialog: dialog)
+    func makeCoordinator() -> Bridge {
+        Bridge(dialog: coordinator)
     }
 
+    /// SwiftUI's `makeCoordinator()` convention names the bridge `Coordinator`,
+    /// but that collides with `UpdateScopeCoordinator` in this file. Call it
+    /// `Bridge` and bind via a typealias so SwiftUI still resolves the type.
+    typealias Coordinator = Bridge
+
     @MainActor
-    final class Coordinator: NSObject, NSTextViewDelegate {
+    final class Bridge: NSObject, NSTextViewDelegate {
         let dialog: UpdateScopeCoordinator
 
         init(dialog: UpdateScopeCoordinator) {
@@ -225,7 +229,7 @@ struct UpdateScopeView: View {
                                 .font(.system(size: 12))
                                 .foregroundStyle(DialogTokens.textSecondary)
                         }
-                        ScopeEditor(dialog: coordinator)
+                        ScopeEditor(coordinator: coordinator)
                             .frame(height: 100)
                     }
                 }
@@ -244,7 +248,6 @@ struct UpdateScopeView: View {
                         .buttonStyle(.bordered)
                     Button("Save", action: coordinator.commit)
                         .buttonStyle(.borderedProminent)
-                        .disabled(!coordinator.inputArmed)
                 }
             }
         }

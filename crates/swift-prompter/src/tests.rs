@@ -204,8 +204,7 @@ fn prettify_args_shows_all_top_level_fields_no_field_hidden() {
 
 #[test]
 fn prettify_args_passes_through_long_inputs_uncapped() {
-    // The scrollable args box in the dialog handles overflow visually — the
-    // adapter no longer truncates. The 64 KiB stdin cap is the only guard.
+    // The 64 KiB stdin cap is the only length guard on `args_pretty`.
     let long: String = "x".repeat(10_000);
     let raw = format!(r#"{{"command":"{long}"}}"#);
     let out = prettify_args(&raw);

@@ -3,7 +3,7 @@ import SwiftUI
 
 // Red-verdict prompt: warning banner over ACTION / ACTION ARGS / AGENT SCOPE
 // context, with a keyboard-driven picker of Deny / Allow / Update scope /
-// Disable session. First validation of the hosted SwiftUI pattern.
+// Disable session.
 
 // MARK: - Options
 
@@ -39,14 +39,11 @@ final class ChooseCoordinator: ObservableObject {
 
     private(set) var response: ChooseResponse = .cancelled
 
-    /// Start the 1s input-arming timer. Until it fires, every key handler
-    /// and Esc / title-bar X early-returns — protects against a terminal
-    /// Enter dismissing the dialog before the user reads it.
+    /// Start the input-arming timer. Until it fires, `commit()` early-returns
+    /// — protects against a terminal Enter dismissing the dialog before the
+    /// user reads it. `cancel()` is intentionally un-gated.
     func arm() {
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            self.inputArmed = true
-        }
+        scheduleInputArming { [weak self] in self?.inputArmed = true }
     }
 
     func handleArrow(_ direction: ArrowDirection) {
@@ -69,7 +66,9 @@ final class ChooseCoordinator: ObservableObject {
     }
 
     func cancel() {
-        guard inputArmed else { return }
+        // Cancel is not gated by `inputArmed`: arming exists to absorb a
+        // terminal Enter that hits the dialog before the user reads it,
+        // not to block deliberate Esc/close-X escape gestures.
         response = .cancelled
         NSApp.stopModal()
     }

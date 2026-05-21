@@ -184,8 +184,8 @@ Keyboard handling bridges through a thin `NSHostingView` subclass. Works on the 
 A Red verdict interrupts the terminal mid-keystroke. Common race: user hits Return as the dialog appears, dismissing it unread.
 
 - Coordinator holds `inputArmed = false`; a `.task` flips it true after 1s.
-- All key handlers and button actions early-return when `!inputArmed`. Esc and title-bar X are gated too.
-- No visible indicator. Within 1s the dialog feels instantly responsive; before that, keystrokes drop silently.
+- `commit()` and editor typing early-return when `!inputArmed`. `cancel()` is **not** gated — Esc, title-bar X, and the Cancel button remain live throughout. Arming exists to absorb a careless terminal Enter, not to block deliberate escape gestures.
+- No visible indicator. Within 1s the dialog feels instantly responsive; before that, commit-shaped keystrokes drop silently.
 - Applied to **choose** and **update_scope** (the cold-popup paths).
 - **Not applied to confirm_disable** — it only appears after explicit picker navigation, so the cold-race doesn't exist. Cancel-as-default already guards an accidental Return.
 

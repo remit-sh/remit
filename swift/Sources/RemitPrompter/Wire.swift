@@ -37,8 +37,8 @@ struct ChooseRequest: Decodable {
     /// older hooks still decode; the dialog omits the row when absent.
     let tool_name: String?
     /// Prettified (`key: value, ...`) form of the action's args. Full content;
-    /// the dialog's scrollable ACTION ARGS box handles overflow. Optional for
-    /// the same backward-decode reason as `tool_name`.
+    /// no length cap applied at this layer. Optional for the same
+    /// backward-decode reason as `tool_name`.
     let args_pretty: String?
 }
 
@@ -57,10 +57,7 @@ struct ConfirmDisableRequest: Decodable {}
 // version skew). The encoder is configured to omit `nil` Optionals so the
 // presence of a key carries information.
 
-private let responseEncoder: JSONEncoder = {
-    let e = JSONEncoder()
-    return e
-}()
+private let responseEncoder = JSONEncoder()
 
 struct ChooseResponse: Encodable {
     let kind: String

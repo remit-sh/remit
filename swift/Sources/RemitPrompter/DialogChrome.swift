@@ -1,9 +1,28 @@
 import AppKit
 import SwiftUI
 
-// SwiftUI chrome shared by all three dialogs, plus the AppKit bridge that
-// drives them (`KeyHandlingHostingView`). Token values live in
-// `DialogTokens`; view primitives compose them.
+// SwiftUI presentation primitives shared by all three dialogs. Token values
+// live in `DialogTokens`; view primitives compose them. The AppKit bridge
+// (`KeyHandlingHostingView`) lives in `Dialog.swift` alongside the rest of
+// the shell.
+
+// MARK: - Input arming
+
+/// Time the dialog waits before accepting commit-shaped input. Absorbs a
+/// terminal Enter that races the dialog's surface time. See TN-2026-015
+/// "Input arming (terminal-race guard)".
+let inputArmingDelay: UInt64 = 1_000_000_000  // nanoseconds
+
+/// Schedule the input-arming flip on the main actor. Coordinators own the
+/// `inputArmed` property; this helper owns the timer so the delay constant
+/// has a single source.
+@MainActor
+func scheduleInputArming(_ setArmed: @escaping @MainActor () -> Void) {
+    Task { @MainActor in
+        try? await Task.sleep(nanoseconds: inputArmingDelay)
+        setArmed()
+    }
+}
 
 // MARK: - Tokens
 
@@ -211,46 +230,3 @@ struct PickerRow: View {
     }
 }
 
-// MARK: - AppKit bridge: KeyHandlingHostingView
-
-enum ArrowDirection {
-    case up, down, left, right
-}
-
-// `NSHostingView` subclass that maps arrow / Return / Esc keys to caller-
-// supplied closures. Anything else falls through to `super`, so a focused
-// `TextEditor` keeps its normal text-editing behaviour.
-final class KeyHandlingHostingView<Content: View>: NSHostingView<Content> {
-    var onArrow: ((ArrowDirection) -> Void)?
-    var onReturn: (() -> Void)?
-    var onEsc: (() -> Void)?
-
-    override var acceptsFirstResponder: Bool { true }
-
-    @MainActor required init(rootView: Content) {
-        super.init(rootView: rootView)
-    }
-
-    @MainActor required dynamic init?(coder aDecoder: NSCoder) {
-        super.init(coder: aDecoder)
-    }
-
-    override func keyDown(with event: NSEvent) {
-        guard
-            let chars = event.charactersIgnoringModifiers,
-            let scalar = chars.unicodeScalars.first
-        else {
-            super.keyDown(with: event)
-            return
-        }
-        switch Int(scalar.value) {
-        case 0xF700: onArrow?(.up)
-        case 0xF701: onArrow?(.down)
-        case 0xF702: onArrow?(.left)
-        case 0xF703: onArrow?(.right)
-        case 0x000D, 0x0003: onReturn?()  // Return / numpad Enter
-        case 0x001B: onEsc?()
-        default: super.keyDown(with: event)
-        }
-    }
-}
