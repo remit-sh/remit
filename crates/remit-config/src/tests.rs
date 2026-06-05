@@ -225,42 +225,6 @@ fn errors_when_neither_env_var_set() {
 }
 
 #[test]
-fn audit_markers_empty_by_default() {
-    assert!(RemitConfig::default().audit_markers().is_empty());
-}
-
-#[test]
-fn audit_markers_includes_dev_bypass_when_set() {
-    let cfg = RemitConfig {
-        dev_bypass: true,
-        ..Default::default()
-    };
-    assert_eq!(cfg.audit_markers(), vec!["dev-bypass-active".to_string()]);
-}
-
-#[test]
-fn audit_markers_includes_debug_mode_when_set() {
-    let cfg = RemitConfig {
-        debug_mode: true,
-        ..Default::default()
-    };
-    assert_eq!(cfg.audit_markers(), vec!["debug-mode".to_string()]);
-}
-
-#[test]
-fn audit_markers_includes_both_when_both_set() {
-    let cfg = RemitConfig {
-        dev_bypass: true,
-        debug_mode: true,
-        ..Default::default()
-    };
-    assert_eq!(
-        cfg.audit_markers(),
-        vec!["dev-bypass-active".to_string(), "debug-mode".to_string()]
-    );
-}
-
-#[test]
 fn parses_debug_mode_true() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("config.toml");

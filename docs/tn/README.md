@@ -23,3 +23,4 @@ See [TN-2026-001](TN-2026-001-technical-notes-and-doc-structure.md) for the syst
 | [TN-2026-013](TN-2026-013-remit-cli-logs.md) | `remit` CLI with `remit logs` + NDJSON migration | plan | active |
 | [TN-2026-014](TN-2026-014-swift-prompter-hang.md) | Swift prompter hang — surface-budget timeout + actionable Red | plan | active |
 | [TN-2026-015](TN-2026-015-prompter-dialogs-swiftui-visual-rebuild.md) | Prompter dialogs — SwiftUI visual rebuild | plan | draft |
+| [TN-2026-016](TN-2026-016-rich-classification-record.md) | Rich classification record + single-write history port | plan | active |

@@ -1,11 +1,15 @@
+use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::io::Read;
 use std::path::PathBuf;
+use std::time::Instant;
 
 use anthropic_classifier::AnthropicClassifier;
 use domain::{
-    Action, ActionArgs, ActionKind, Agent, AgentId, AgentType, CallId, ClassificationHistoryWriter,
-    ClassificationInput, Classifier, PromptingDeps, RedKind, Verdict, process_action,
+    Action, ActionArgs, ActionKind, Agent, AgentId, AgentType, CallId, ClassificationEvent,
+    ClassificationHistoryWriter, ClassificationInput, ClassificationRecord, Classifier,
+    CorrelationId, Enforced, EventKind, PromptingDeps, RedKind, Verdict, process_action,
+    resolve_enforcement,
 };
 use file_classification_history::FileClassificationHistoryWriter;
 use file_scope_store::FileAgentStore;
@@ -74,18 +78,13 @@ struct SessionStartPayload {
 }
 
 fn main() {
+    let hook_started = Instant::now();
+    let correlation_id = CorrelationId::new();
     let cfg = fail_closed("config", remit_config::load());
     let agents_dir = fail_closed("agents dir", remit_config::agents_dir());
 
     let log_path = fail_closed("log path", remit_config::log_path());
-    if cfg.debug_mode {
-        eprintln!(
-            "remit: debug_mode is active; action args will be persisted in {}",
-            log_path.display()
-        );
-    }
-    let logger =
-        FileClassificationHistoryWriter::new(log_path, cfg.audit_markers(), cfg.debug_mode);
+    let logger = FileClassificationHistoryWriter::new(log_path);
 
     let mut buf = String::new();
     fail_closed("read stdin", std::io::stdin().read_to_string(&mut buf));
@@ -98,7 +97,12 @@ fn main() {
         .unwrap_or("")
         .to_string();
 
-    logger.record_hook_event(&event);
+    warn_on_history_err(logger.write_event(lifecycle_event(
+        format!("hook-event: {event}"),
+        BTreeMap::new(),
+        Some(&correlation_id),
+        cfg.dev_bypass,
+    )));
 
     let agent_store = FileAgentStore::new(agents_dir.clone());
     let prompt_lock = FsPromptLock::new(agents_dir);
@@ -117,6 +121,8 @@ fn main() {
                 &prompter,
                 &logger,
                 llm,
+                correlation_id.clone(),
+                hook_started,
             );
         }
         "SubagentStart" => {
@@ -155,28 +161,26 @@ fn handle_pre_tool_use(
     prompter: &SwiftPrompter,
     logger: &FileClassificationHistoryWriter,
     llm: AnthropicClassifier,
+    correlation_id: CorrelationId,
+    hook_started: Instant,
 ) {
     let payload_session = fail_closed(
         "PreToolUse session id",
         AgentId::try_new(payload.session_id),
     );
 
-    // Bundled scope: when a parent calls a spawn-shaped tool, the scope for the
-    // upcoming child is sitting right there in the tool args. Stage it so the
-    // child's start hook can claim it. The spawn call itself still falls through
-    // to classification under the parent's own scope.
+    let bundled_scope_present =
+        bundled_scope_from(&payload.tool_name, &payload.tool_input).is_some();
     if let Some(text) = bundled_scope_from(&payload.tool_name, &payload.tool_input) {
         stage_pending(&payload_session, text, agent_store, logger);
     }
 
-    // Drop agent-controlled narration keys before the classifier sees the input.
-    // Bundled-scope extraction has already run on untouched input.
+    let args_size_pre = u32::try_from(payload.tool_input.to_string().len()).unwrap_or(u32::MAX);
     let mut tool_input = payload.tool_input;
-    strip_narration(&mut tool_input);
+    let narration_fields_stripped = strip_narration(&mut tool_input);
+    let stripped_serialised = tool_input.to_string();
+    let args_size_post = u32::try_from(stripped_serialised.len()).unwrap_or(u32::MAX);
 
-    // Identity collapse: in-process subagents have their own `agent_id` that
-    // uniquely identifies them. We file scopes under it and treat the payload
-    // session id as the parent for inheritance walks (and for matching pending rows).
     let agent = match payload.agent_id {
         Some(agent_id) => Agent::subagent(
             fail_closed("PreToolUse agent id", AgentId::try_new(agent_id)),
@@ -189,57 +193,164 @@ fn handle_pre_tool_use(
     };
 
     let cwd = payload.cwd.clone();
+    let tool_name_kind = ActionKind::new(payload.tool_name.clone());
+    let call_id = payload.tool_use_id.clone().map(CallId::new);
     let classifier_input = ClassificationInput {
-        agent,
+        agent: agent.clone(),
         action: Action {
-            call_id: payload.tool_use_id.map(CallId::new),
-            kind: ActionKind::new(payload.tool_name),
-            args: ActionArgs::new(tool_input.to_string()),
+            call_id: call_id.clone(),
+            kind: tool_name_kind.clone(),
+            args: ActionArgs::new(stripped_serialised.clone()),
         },
         working_dir: cwd.clone(),
+        correlation_id: correlation_id.clone(),
     };
 
     let agent_type = parse_agent_type(payload.agent_type.as_deref());
     if payload.agent_type.is_some() && agent_type.is_none() {
-        logger.record_custom(
-            "invalid_agent_type",
-            serde_json::json!({
-                "raw": payload.agent_type.as_deref().unwrap_or(""),
-            }),
-        );
+        let mut details = BTreeMap::new();
+        // Cap attacker-controlled `raw` value at 1 KiB before it goes into the
+        // audit row. NDJSON line atomicity is preserved by serde escaping;
+        // this guards against an attacker shipping multi-MB agent_type strings
+        // that bloat the log.
+        let raw = truncate_for_details(payload.agent_type.as_deref().unwrap_or(""));
+        details.insert("raw".into(), raw);
+        warn_on_history_err(logger.write_event(lifecycle_event(
+            "invalid-agent-type".into(),
+            details,
+            Some(&correlation_id),
+            cfg.dev_bypass,
+        )));
     }
 
-    let guidance_reader = FileStandingGuidanceReader::new(cwd).with_agent_type(agent_type);
+    let guidance_reader =
+        FileStandingGuidanceReader::new(cwd.clone()).with_agent_type(agent_type.clone());
     let classifier = Classifier::new(llm);
     let prompting = PromptingDeps {
         prompter,
         lock: prompt_lock,
     };
-    let verdict = process_action(
+    let outcome = process_action(
         &classifier_input,
         agent_store,
         &classifier,
         logger,
         &prompting,
         &guidance_reader,
+        cfg.dev_bypass,
     );
 
-    match verdict {
-        Verdict::Green => {}
-        Verdict::Red { reason, .. } if cfg.dev_bypass => {
-            let line = format_red_for_agent(&reason, agent_store, &classifier_input.agent.id);
+    let (enforced, dev_override) = resolve_enforcement(&outcome.verdict, cfg.dev_bypass);
+    let override_action = dev_override.or(outcome.override_action);
+
+    let record = ClassificationRecord {
+        ts: time::OffsetDateTime::now_utc(),
+        session_id: classifier_input.agent.id().clone(),
+        parent_id: classifier_input.agent.parent_id().cloned(),
+        agent_type,
+        working_dir: cwd,
+        call_id,
+        correlation_id: correlation_id.clone(),
+        pid: std::process::id(),
+        hook_duration: hook_started.elapsed(),
+        tool_name: tool_name_kind,
+        // Always captured during pre-MVP for forensic depth. Revisit before
+        // public shipping (CLAUDE.md security policy: operational data may be
+        // persisted locally; the 0600 audit log boundary holds the line).
+        tool_input: Some(stripped_serialised),
+        bundled_scope_present,
+        narration_fields_stripped,
+        args_size_pre,
+        args_size_post,
+        scope: outcome.scope,
+        scope_origin: outcome.scope_origin,
+        llm_outcome: outcome.llm_outcome,
+        prompt_shown: outcome.prompt_shown,
+        prompt_latency: outcome.prompt_latency,
+        lock_wait: outcome.lock_wait,
+        initial_verdict: outcome.initial_verdict,
+        verdict: outcome.verdict.clone(),
+        enforced,
+        override_action,
+        error_chain: outcome.error_chain.as_deref().map(truncate_error_chain),
+        dev_bypass: cfg.dev_bypass,
+        details: BTreeMap::new(),
+    };
+    warn_on_history_err(logger.write(record));
+
+    match (enforced, &outcome.verdict) {
+        (Enforced::Permit, Verdict::Green) => {}
+        (Enforced::Permit, Verdict::Red { reason, .. }) => {
+            let line = format_red_for_agent(reason, agent_store, classifier_input.agent.id());
             eprintln!("[dev-bypass] would have denied: {line}");
         }
-        Verdict::Red { reason, kind } => {
-            let line = format_red_for_agent(&reason, agent_store, &classifier_input.agent.id);
-            let line = match dev_bypass_hint(&kind) {
+        (Enforced::Deny, Verdict::Red { reason, kind }) => {
+            let line = format_red_for_agent(reason, agent_store, classifier_input.agent.id());
+            let line = match dev_bypass_hint(kind) {
                 Some(hint) => format!("{line}\n\n{hint}"),
                 None => line,
             };
             eprintln!("{line}");
             std::process::exit(2);
         }
+        (Enforced::Deny, Verdict::Green) => {
+            // resolve_enforcement never returns this; defence-in-depth.
+            std::process::exit(2);
+        }
     }
+}
+
+fn lifecycle_event(
+    message: String,
+    details: BTreeMap<String, String>,
+    correlation_id: Option<&CorrelationId>,
+    dev_bypass: bool,
+) -> ClassificationEvent {
+    ClassificationEvent {
+        ts: time::OffsetDateTime::now_utc(),
+        session_id: None,
+        correlation_id: correlation_id.cloned(),
+        kind: EventKind::Lifecycle,
+        message,
+        details,
+        dev_bypass,
+    }
+}
+
+/// Per-write history-error policy at the composition root. Matches ADR-0002
+/// best-effort logging: never block the verdict on a write failure, but
+/// surface failures to stderr so an operator knows the audit trail is
+/// degraded. SQLite (#38) will tighten this to fail-closed by trapping the
+/// `Err` here.
+fn warn_on_history_err(result: Result<(), domain::HistoryError>) {
+    if let Err(e) = result {
+        eprintln!("remit: audit write failed: {e}");
+    }
+}
+
+/// Cap attacker-controlled string values before they land in an audit row's
+/// `details` map. 1 KiB is generous for diagnostic context but bounds the
+/// damage a hostile payload can do to log size.
+const DETAILS_VALUE_MAX_BYTES: usize = 1024;
+const ERROR_CHAIN_MAX_BYTES: usize = 2048;
+
+fn truncate_for_details(s: &str) -> String {
+    truncate_at_char_boundary(s, DETAILS_VALUE_MAX_BYTES).to_string()
+}
+
+fn truncate_error_chain(s: &str) -> String {
+    truncate_at_char_boundary(s, ERROR_CHAIN_MAX_BYTES).to_string()
+}
+
+fn truncate_at_char_boundary(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
 }
 
 /// User-facing recovery hint for Red kinds where the user can unstick the
@@ -300,21 +411,29 @@ fn parent_from_env_value(env: Option<String>, self_id: &AgentId) -> Option<Agent
 
 /// Recursively drop [`NARRATION_FIELDS`] from a JSON value in place. Object
 /// keys are matched case-insensitively. Descends into nested objects and into
-/// objects inside arrays. Non-object, non-array roots are unchanged.
-fn strip_narration(value: &mut serde_json::Value) {
+/// objects inside arrays. Non-object, non-array roots are unchanged. Returns
+/// the number of fields stripped (audit data).
+fn strip_narration(value: &mut serde_json::Value) -> u32 {
+    let mut count = 0u32;
+    strip_narration_inner(value, &mut count);
+    count
+}
+
+fn strip_narration_inner(value: &mut serde_json::Value, count: &mut u32) {
     match value {
         serde_json::Value::Object(map) => {
             map.retain(|k, v| {
                 if NARRATION_FIELDS.iter().any(|f| f.eq_ignore_ascii_case(k)) {
+                    *count = count.saturating_add(1);
                     return false;
                 }
-                strip_narration(v);
+                strip_narration_inner(v, count);
                 true
             });
         }
         serde_json::Value::Array(arr) => {
             for v in arr.iter_mut() {
-                strip_narration(v);
+                strip_narration_inner(v, count);
             }
         }
         _ => {}

@@ -21,3 +21,13 @@ fn accepts_scope_with_leading_whitespace() {
     // A real prompt may start with whitespace. We only reject when *every* char is whitespace.
     assert!(Scope::try_new("  leading whitespace is fine").is_ok());
 }
+
+#[test]
+fn accepts_scope_at_8_kib_byte_cap() {
+    assert!(Scope::try_new("x".repeat(8 * 1024)).is_ok());
+}
+
+#[test]
+fn rejects_scope_above_8_kib_byte_cap() {
+    assert!(Scope::try_new("x".repeat(8 * 1024 + 1)).is_err());
+}

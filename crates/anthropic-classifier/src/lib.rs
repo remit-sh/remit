@@ -14,8 +14,9 @@
 use std::time::Duration;
 
 use domain::{
-    Action, ClassificationContext, LlmClassifier, LlmClassifierError, LlmDecision, Scope,
-    StandingGuidance, compose_trusted_system_prompt,
+    Action, ClassificationContext, ClassifierOutcome, LlmCallStats, LlmClassifier,
+    LlmClassifierError, RawVerdict, RedKind, Scope, StandingGuidance, Verdict,
+    compose_trusted_system_prompt,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -110,7 +111,10 @@ impl AnthropicClassifier {
 }
 
 impl LlmClassifier for AnthropicClassifier {
-    fn classify(&self, ctx: &ClassificationContext) -> Result<LlmDecision, LlmClassifierError> {
+    fn classify(
+        &self,
+        ctx: &ClassificationContext,
+    ) -> Result<ClassifierOutcome, LlmClassifierError> {
         let body = build_request(ctx, &self.model);
 
         let agent = ureq::AgentBuilder::new()
@@ -118,6 +122,7 @@ impl LlmClassifier for AnthropicClassifier {
             .timeout_read(READ_TIMEOUT)
             .build();
 
+        let started = std::time::Instant::now();
         let response = agent
             .post(&self.endpoint)
             .set("x-api-key", &self.api_key)
@@ -130,8 +135,49 @@ impl LlmClassifier for AnthropicClassifier {
             .into_json()
             .map_err(|e| LlmClassifierError::Unavailable(Box::new(e)))?;
 
-        parse_response(&json).map_err(|e| LlmClassifierError::Unavailable(e.into()))
+        let latency = started.elapsed();
+        let (input_tokens, output_tokens) = parse_usage(&json);
+        let parsed =
+            parse_response(&json).map_err(|e| LlmClassifierError::Unavailable(e.into()))?;
+
+        let stats = LlmCallStats {
+            model: self.model.clone(),
+            latency,
+            input_tokens,
+            output_tokens,
+        };
+
+        Ok(match parsed {
+            ParsedDecision::Green => ClassifierOutcome {
+                verdict: Verdict::Green,
+                raw_verdict: RawVerdict::Green,
+                raw_reason: None,
+                llm: Some(stats),
+            },
+            ParsedDecision::Red { reason } => ClassifierOutcome {
+                verdict: Verdict::Red {
+                    kind: RedKind::OutOfScope,
+                    reason: reason.clone(),
+                },
+                raw_verdict: RawVerdict::Red,
+                raw_reason: Some(reason),
+                llm: Some(stats),
+            },
+        })
     }
+}
+
+fn parse_usage(json: &Value) -> (Option<u32>, Option<u32>) {
+    let usage = json.get("usage");
+    let input = usage
+        .and_then(|u| u.get("input_tokens"))
+        .and_then(Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok());
+    let output = usage
+        .and_then(|u| u.get("output_tokens"))
+        .and_then(Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok());
+    (input, output)
 }
 
 fn build_request(ctx: &ClassificationContext, model: &str) -> Value {
@@ -211,7 +257,12 @@ struct Decision {
     reason: Option<String>,
 }
 
-fn parse_response(json: &Value) -> Result<LlmDecision, ParseError> {
+enum ParsedDecision {
+    Green,
+    Red { reason: String },
+}
+
+fn parse_response(json: &Value) -> Result<ParsedDecision, ParseError> {
     let input = json
         .get("content")
         .and_then(Value::as_array)
@@ -228,13 +279,13 @@ fn parse_response(json: &Value) -> Result<LlmDecision, ParseError> {
         .map_err(|e| ParseError::InvalidToolInput(e.to_string()))?;
 
     match decision.verdict.as_str() {
-        "green" => Ok(LlmDecision::Green),
+        "green" => Ok(ParsedDecision::Green),
         "red" => {
             let reason = decision
                 .reason
                 .filter(|r| !r.trim().is_empty())
                 .ok_or(ParseError::RedWithoutReason)?;
-            Ok(LlmDecision::Red { reason })
+            Ok(ParsedDecision::Red { reason })
         }
         other => Err(ParseError::UnknownVerdict(other.into())),
     }

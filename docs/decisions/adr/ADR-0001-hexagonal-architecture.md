@@ -12,8 +12,8 @@ tags: [architecture, dependency-rule, ports]
 ## Context
 
 - Remit is a security tool. The classification core must be testable in isolation, IO-free, and replaceable per host (Claude Code today, other agents later).
-- Crates already split hexagonally: `domain/`, `file-classification-log/`, `file-scope-store/`, `osascript-prompter/`, `anthropic-classifier/`, `remit-config/`, `claude-code-hook/`.
-- Existing ports: `ClassifierLogger`, `LlmClassifier`, `ScopeReader`, `ScopeWriter`, `PendingScopeStore`, `ScopePrompter` — one MVP adapter each, more expected.
+- Crates already split hexagonally: `domain/`, `file-classification-history/`, `file-scope-store/`, `file-standing-guidance/`, `swift-prompter/`, `osascript-prompter/`, `anthropic-classifier/`, `prompt-lock/`, `remit-config/`, `claude-code-hook/`, `remit-cli/`.
+- Existing ports: `ClassificationHistoryWriter`, `ClassificationHistoryReader`, `LlmClassifier`, `AgentStore`, `Prompter`, `PromptLock`, `StandingGuidanceReader` — one MVP adapter each, more expected.
 
 ## Decision
 

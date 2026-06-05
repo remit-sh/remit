@@ -9,8 +9,8 @@ use std::rc::Rc;
 
 use domain::{
     Action, AgentId, AgentStore, ClassificationContext, ClassificationHistoryWriter,
-    ClassificationInput, LlmClassifier, LlmClassifierError, LlmDecision, PromptError, PromptLock,
-    Prompter, RedKind, Scope, ScopeStoreError, StandingGuidance, StandingGuidanceError,
+    ClassifierOutcome, LlmCallStats, LlmClassifier, LlmClassifierError, PromptError, PromptLock,
+    Prompter, RawVerdict, RedKind, Scope, ScopeStoreError, StandingGuidance, StandingGuidanceError,
     StandingGuidanceReader, Verdict, VerdictChoice,
 };
 
@@ -181,71 +181,57 @@ impl From<&Verdict> for LoggedVerdict {
     }
 }
 
-pub struct RecordingLogger {
-    incoming: Rc<RefCell<usize>>,
-    outcomes: Rc<RefCell<Vec<LoggedVerdict>>>,
-    errors: Rc<RefCell<Vec<String>>>,
-    events: Rc<RefCell<Vec<String>>>,
+/// In-memory `ClassificationHistoryWriter` for tests. Captures every
+/// `write` record and `write_event` event. Methods return `Ok(())`.
+pub struct RecordingHistory {
+    records: Rc<RefCell<Vec<domain::ClassificationRecord>>>,
+    events: Rc<RefCell<Vec<domain::ClassificationEvent>>>,
 }
 
-impl RecordingLogger {
+impl RecordingHistory {
     pub fn new() -> Self {
         Self {
-            incoming: Rc::new(RefCell::new(0)),
-            outcomes: Rc::new(RefCell::new(Vec::new())),
-            errors: Rc::new(RefCell::new(Vec::new())),
+            records: Rc::new(RefCell::new(Vec::new())),
             events: Rc::new(RefCell::new(Vec::new())),
         }
     }
 
-    pub fn call_count(&self) -> Rc<RefCell<usize>> {
-        Rc::clone(&self.incoming)
+    pub fn records(&self) -> Rc<RefCell<Vec<domain::ClassificationRecord>>> {
+        Rc::clone(&self.records)
     }
 
-    pub fn outcomes(&self) -> Rc<RefCell<Vec<LoggedVerdict>>> {
-        Rc::clone(&self.outcomes)
-    }
-
-    pub fn errors(&self) -> Rc<RefCell<Vec<String>>> {
-        Rc::clone(&self.errors)
-    }
-
-    pub fn events(&self) -> Rc<RefCell<Vec<String>>> {
+    pub fn events(&self) -> Rc<RefCell<Vec<domain::ClassificationEvent>>> {
         Rc::clone(&self.events)
+    }
+
+    pub fn event_messages(&self) -> Vec<String> {
+        self.events
+            .borrow()
+            .iter()
+            .map(|e| e.message.clone())
+            .collect()
+    }
+
+    pub fn state_transition_messages(&self) -> Vec<String> {
+        self.events
+            .borrow()
+            .iter()
+            .filter(|e| matches!(e.kind, domain::EventKind::StateTransition))
+            .map(|e| e.message.clone())
+            .collect()
     }
 }
 
-impl ClassificationHistoryWriter for RecordingLogger {
-    fn record_incoming(&self, _input: &ClassificationInput) {
-        *self.incoming.borrow_mut() += 1;
+impl ClassificationHistoryWriter for RecordingHistory {
+    fn write(&self, record: domain::ClassificationRecord) -> Result<(), domain::HistoryError> {
+        self.records.borrow_mut().push(record);
+        Ok(())
     }
 
-    fn record_outcome(&self, _input: &ClassificationInput, verdict: &Verdict) {
-        self.outcomes.borrow_mut().push(verdict.into());
+    fn write_event(&self, event: domain::ClassificationEvent) -> Result<(), domain::HistoryError> {
+        self.events.borrow_mut().push(event);
+        Ok(())
     }
-
-    fn record_error(
-        &self,
-        _input: &ClassificationInput,
-        error: &(dyn std::error::Error + 'static),
-    ) {
-        let mut chain = error.to_string();
-        let mut current = error.source();
-        while let Some(c) = current {
-            chain.push_str(": ");
-            chain.push_str(&c.to_string());
-            current = c.source();
-        }
-        self.errors.borrow_mut().push(chain);
-    }
-
-    fn record_event(&self, _input: &ClassificationInput, event: &str) {
-        self.events.borrow_mut().push(event.to_string());
-    }
-
-    fn record_hook_event(&self, _name: &str) {}
-
-    fn record_custom(&self, _kind: &str, _payload: serde_json::Value) {}
 }
 
 /// Stub `Prompter` driven by pre-loaded queues — one queue per method. Tests
@@ -504,21 +490,41 @@ impl FakeLlmClassifier {
 }
 
 impl LlmClassifier for FakeLlmClassifier {
-    fn classify(&self, ctx: &ClassificationContext) -> Result<LlmDecision, LlmClassifierError> {
+    fn classify(
+        &self,
+        ctx: &ClassificationContext,
+    ) -> Result<ClassifierOutcome, LlmClassifierError> {
         *self.calls.borrow_mut() += 1;
         *self.last_standing.borrow_mut() = ctx.standing.clone();
         if let Some(next) = self.sequence.borrow_mut().pop_front() {
             *self.last.borrow_mut() = Some(next);
         }
+        let stats = LlmCallStats {
+            model: "fake-classifier".into(),
+            latency: std::time::Duration::from_millis(1),
+            input_tokens: Some(10),
+            output_tokens: Some(5),
+        };
         match self
             .last
             .borrow()
             .as_ref()
             .expect("FakeLlmClassifier: classify called with no outcome configured")
         {
-            LlmOutcome::Green => Ok(LlmDecision::Green),
-            LlmOutcome::Red(reason) => Ok(LlmDecision::Red {
-                reason: reason.clone(),
+            LlmOutcome::Green => Ok(ClassifierOutcome {
+                verdict: Verdict::Green,
+                raw_verdict: RawVerdict::Green,
+                raw_reason: None,
+                llm: Some(stats),
+            }),
+            LlmOutcome::Red(reason) => Ok(ClassifierOutcome {
+                verdict: Verdict::Red {
+                    kind: RedKind::OutOfScope,
+                    reason: reason.clone(),
+                },
+                raw_verdict: RawVerdict::Red,
+                raw_reason: Some(reason.clone()),
+                llm: Some(stats),
             }),
             LlmOutcome::Unavailable => {
                 Err(LlmClassifierError::Unavailable("fake LLM failure".into()))

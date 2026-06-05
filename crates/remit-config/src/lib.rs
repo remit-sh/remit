@@ -74,21 +74,6 @@ impl fmt::Debug for AnthropicConfig {
     }
 }
 
-impl RemitConfig {
-    /// Audit-log markers active for this config — flags whose state the audit
-    /// trail should reflect. Empty when no marker-bearing flag is set.
-    pub fn audit_markers(&self) -> Vec<String> {
-        let mut markers = Vec::new();
-        if self.dev_bypass {
-            markers.push("dev-bypass-active".into());
-        }
-        if self.debug_mode {
-            markers.push("debug-mode".into());
-        }
-        markers
-    }
-}
-
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum ConfigError {

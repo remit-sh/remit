@@ -6,8 +6,9 @@ rust-version.workspace = true
 
 [dependencies]
 nutype = "0.6"
-serde_json = "1"
 thiserror = "2"
+time = { version = "0.3", features = ["macros"] }
+uuid = { version = "1", features = ["v4"] }
 
 [features]
 test-support = []

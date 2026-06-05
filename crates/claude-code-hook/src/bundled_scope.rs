@@ -7,13 +7,16 @@
 //! they exit 2 on the store failures that would otherwise let the
 //! child run unscoped.
 //!
-//! Stage and claim outcomes are recorded to the **Classification
-//! history** via the generic `record_custom` API — the history writer
-//! doesn't model bundled scope; the hook adapter owns the wire shape.
+//! Stage and claim outcomes are recorded via `write_event` with
+//! `EventKind::Lifecycle` — the history writer doesn't model bundled
+//! scope; the hook adapter owns the wire shape via `details` map.
 
-use domain::{AgentId, AgentStore, ClassificationHistoryWriter, Scope};
+use std::collections::BTreeMap;
+
+use domain::{
+    AgentId, AgentStore, ClassificationEvent, ClassificationHistoryWriter, EventKind, Scope,
+};
 use file_scope_store::FileAgentStore;
-use serde_json::json;
 
 /// Outcome of staging a bundled scope. Scope text itself is not
 /// persisted — bundled scope is potentially sensitive content per
@@ -54,20 +57,34 @@ impl<'a> ClaimPendingOutcome<'a> {
     }
 }
 
+fn lifecycle_event(message: String, details: BTreeMap<String, String>) -> ClassificationEvent {
+    ClassificationEvent {
+        ts: time::OffsetDateTime::now_utc(),
+        session_id: None,
+        correlation_id: None,
+        kind: EventKind::Lifecycle,
+        message,
+        details,
+        dev_bypass: false,
+    }
+}
+
 fn record_stage_pending<W: ClassificationHistoryWriter>(
     writer: &W,
     parent: &AgentId,
     outcome: StagePendingOutcome<'_>,
 ) {
     let (outcome_label, detail) = outcome.parts();
-    let mut payload = json!({
-        "parent": parent.as_ref(),
-        "outcome": outcome_label,
-    });
+    let mut details = BTreeMap::new();
+    details.insert("parent".into(), parent.as_ref().to_string());
+    details.insert("outcome".into(), outcome_label.into());
     if let Some(d) = detail {
-        payload["detail"] = json!(d);
+        details.insert("detail".into(), d.into());
     }
-    writer.record_custom("stage_pending", payload);
+    let _ = writer.write_event(lifecycle_event(
+        format!("stage_pending: {outcome_label}"),
+        details,
+    ));
 }
 
 fn record_claim_pending<W: ClassificationHistoryWriter>(
@@ -78,16 +95,18 @@ fn record_claim_pending<W: ClassificationHistoryWriter>(
     outcome: ClaimPendingOutcome<'_>,
 ) {
     let (outcome_label, detail) = outcome.parts();
-    let mut payload = json!({
-        "hook": hook,
-        "parent": parent.as_ref(),
-        "child": child.as_ref(),
-        "outcome": outcome_label,
-    });
+    let mut details = BTreeMap::new();
+    details.insert("hook".into(), hook.into());
+    details.insert("parent".into(), parent.as_ref().to_string());
+    details.insert("child".into(), child.as_ref().to_string());
+    details.insert("outcome".into(), outcome_label.into());
     if let Some(d) = detail {
-        payload["detail"] = json!(d);
+        details.insert("detail".into(), d.into());
     }
-    writer.record_custom("claim_pending", payload);
+    let _ = writer.write_event(lifecycle_event(
+        format!("claim_pending: {outcome_label}"),
+        details,
+    ));
 }
 
 /// Record the bundled scope under the parent's id, to be claimed by
@@ -103,9 +122,6 @@ pub fn stage_pending<W: ClassificationHistoryWriter>(
     let scope = match Scope::try_new(&scope_text) {
         Ok(s) => s,
         Err(_) => {
-            // Fail-closed at the boundary: refuse to stage an empty/whitespace scope.
-            // The child will hit `SubagentMissingScope` at first tool call, which is
-            // strictly safer than binding a meaningless string.
             record_stage_pending(
                 writer,
                 parent,
@@ -119,8 +135,6 @@ pub fn stage_pending<W: ClassificationHistoryWriter>(
     match agent_store.set_pending(parent, scope) {
         Ok(()) => record_stage_pending(writer, parent, StagePendingOutcome::Set),
         Err(e) => {
-            // Fail-closed: deny the spawn so the parent doesn't proceed thinking
-            // the scope was set.
             record_stage_pending(
                 writer,
                 parent,
@@ -181,9 +195,6 @@ pub fn claim_and_assign<W: ClassificationHistoryWriter>(
         }
     };
 
-    // Fail-closed signal: the pending row was consumed but the child's scope row
-    // wasn't written. The child will hit `SubagentMissingScope` at first tool
-    // call (verdict-correct) but the operator needs to see the underlying cause.
     if assign_failed_error.is_some() {
         eprintln!("remit: {hook} claim_and_assign: assign failed; child will run unscoped");
         std::process::exit(2);

@@ -24,7 +24,8 @@ where
     let id_b = AgentId::try_new("contract-test-agent-b").unwrap();
     let scope_1 = Scope::try_new("first scope").unwrap();
     let scope_2 = Scope::try_new("second scope").unwrap();
-    let long = Scope::try_new("x".repeat(64 * 1024)).unwrap();
+    // 8 KiB matches the Scope newtype cap.
+    let long = Scope::try_new("x".repeat(8 * 1024)).unwrap();
     let unicode = Scope::try_new("范围 — naïve café 🦀").unwrap();
 
     // ----- Scope round-trip + overwrite -----
@@ -163,12 +164,12 @@ fn record_matches(
     all: &[ClassificationRecord],
 ) -> bool {
     if let Some(agent_id) = &query.agent_id
-        && &record.agent_id != agent_id
+        && &record.session_id != agent_id
     {
         return false;
     }
     if let Some(root_agent_id) = &query.root_agent_id
-        && !is_descendant_of(&record.agent_id, root_agent_id, all)
+        && !is_descendant_of(&record.session_id, root_agent_id, all)
     {
         return false;
     }
@@ -178,12 +179,12 @@ fn record_matches(
         return false;
     }
     if let Some(since) = query.since
-        && record.timestamp < since
+        && std::time::SystemTime::from(record.ts) < since
     {
         return false;
     }
     if let Some(action) = &query.action
-        && &record.action != action
+        && &record.tool_name != action
     {
         return false;
     }
@@ -206,10 +207,10 @@ fn is_descendant_of(agent: &AgentId, root: &AgentId, all: &[ClassificationRecord
     let mut visited: HashSet<&AgentId> = HashSet::new();
     let mut current = agent;
     while visited.insert(current) {
-        let Some(rec) = all.iter().find(|r| &r.agent_id == current) else {
+        let Some(rec) = all.iter().find(|r| &r.session_id == current) else {
             return false;
         };
-        match &rec.parent_agent_id {
+        match &rec.parent_id {
             Some(parent) if parent == root => return true,
             Some(parent) => current = parent,
             None => return false,

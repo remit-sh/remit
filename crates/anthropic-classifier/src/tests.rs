@@ -263,7 +263,7 @@ mod from_config {
 fn parse_green_verdict_tool_use() {
     assert!(matches!(
         parse_response(&green_response()),
-        Ok(LlmDecision::Green)
+        Ok(ParsedDecision::Green)
     ));
 }
 
@@ -279,7 +279,7 @@ fn parse_red_verdict_with_reason() {
             }
         ]
     });
-    let LlmDecision::Red { reason } = parse_response(&json).unwrap() else {
+    let ParsedDecision::Red { reason } = parse_response(&json).unwrap() else {
         panic!("expected Red");
     };
     assert_eq!(reason, "reads SSH key");
@@ -293,7 +293,7 @@ fn parse_skips_non_tool_use_blocks() {
             {"type": "tool_use", "id": "toolu_3", "name": "verdict", "input": {"verdict": "green"}}
         ]
     });
-    assert!(matches!(parse_response(&json), Ok(LlmDecision::Green)));
+    assert!(matches!(parse_response(&json), Ok(ParsedDecision::Green)));
 }
 
 #[test]

@@ -1,16 +1,18 @@
 #![cfg(feature = "test-support")]
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use domain::test_support::InMemoryClassificationHistory;
 use domain::{
-    ActionKind, AgentId, ClassificationHistoryReader, ClassificationRecord, HistoryQuery, RedKind,
-    Verdict, VerdictFilter,
+    ActionKind, AgentId, ClassificationHistoryReader, ClassificationRecord, CorrelationId,
+    Enforced, HistoryQuery, RedKind, Verdict, VerdictFilter,
 };
 
-fn ts(seconds: u64) -> SystemTime {
-    UNIX_EPOCH + Duration::from_secs(seconds)
+fn ts(seconds: u64) -> time::OffsetDateTime {
+    let st = UNIX_EPOCH + Duration::from_secs(seconds);
+    time::OffsetDateTime::from(st)
 }
 
 fn agent(id: &str) -> AgentId {
@@ -24,14 +26,39 @@ fn rec(
     action: &str,
     verdict: Verdict,
 ) -> ClassificationRecord {
+    let enforced = match &verdict {
+        Verdict::Green => Enforced::Permit,
+        Verdict::Red { .. } => Enforced::Deny,
+    };
     ClassificationRecord {
-        timestamp: ts(seconds),
-        agent_id: agent(id),
-        parent_agent_id: parent.map(agent),
-        action: ActionKind::new(action),
-        verdict,
+        ts: ts(seconds),
+        session_id: agent(id),
+        parent_id: parent.map(agent),
+        agent_type: None,
         working_dir: PathBuf::from("/tmp"),
-        args: None,
+        call_id: None,
+        correlation_id: CorrelationId::new(),
+        pid: 1,
+        hook_duration: Duration::from_millis(1),
+        tool_name: ActionKind::new(action),
+        tool_input: None,
+        bundled_scope_present: false,
+        narration_fields_stripped: 0,
+        args_size_pre: 0,
+        args_size_post: 0,
+        scope: None,
+        scope_origin: None,
+        llm_outcome: None,
+        prompt_shown: false,
+        prompt_latency: None,
+        lock_wait: None,
+        initial_verdict: None,
+        verdict,
+        enforced,
+        override_action: None,
+        error_chain: None,
+        dev_bypass: false,
+        details: BTreeMap::new(),
     }
 }
 
@@ -72,7 +99,7 @@ fn filters_by_agent_id() {
         })
         .unwrap();
     assert_eq!(results.len(), 2);
-    assert!(results.iter().all(|r| r.agent_id == agent("a")));
+    assert!(results.iter().all(|r| r.session_id == agent("a")));
 }
 
 #[test]
@@ -126,7 +153,7 @@ fn filters_by_action() {
         })
         .unwrap();
     assert_eq!(results.len(), 2);
-    assert!(results.iter().all(|r| r.action.as_ref() == "Bash"));
+    assert!(results.iter().all(|r| r.tool_name.as_ref() == "Bash"));
 }
 
 #[test]
@@ -139,12 +166,12 @@ fn since_boundary_is_inclusive() {
 
     let results = log
         .query(&HistoryQuery {
-            since: Some(ts(2)),
+            since: Some(SystemTime::from(ts(2))),
             ..Default::default()
         })
         .unwrap();
     assert_eq!(results.len(), 2);
-    assert_eq!(results[0].timestamp, ts(2));
+    assert_eq!(results[0].ts, ts(2));
 }
 
 #[test]
@@ -165,13 +192,13 @@ fn filters_compose() {
         })
         .unwrap();
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].agent_id, agent("a"));
-    assert_eq!(results[0].action.as_ref(), "Write");
+    assert_eq!(results[0].session_id, agent("a"));
+    assert_eq!(results[0].tool_name.as_ref(), "Write");
 }
 
 #[test]
 fn root_resolves_to_descendants_inclusive() {
-    // tree: root → child-1 → grandchild ; root → child-2
+    // tree: root -> child-1 -> grandchild ; root -> child-2
     let log = InMemoryClassificationHistory::new(vec![
         rec(1, "root", None, "Bash", green()),
         rec(2, "child-1", Some("root"), "Read", green()),
@@ -187,7 +214,7 @@ fn root_resolves_to_descendants_inclusive() {
         })
         .unwrap();
     assert_eq!(results.len(), 4);
-    let ids: Vec<_> = results.iter().map(|r| r.agent_id.as_ref()).collect();
+    let ids: Vec<_> = results.iter().map(|r| r.session_id.as_ref()).collect();
     assert!(ids.contains(&"root"));
     assert!(ids.contains(&"child-1"));
     assert!(ids.contains(&"grandchild"));
@@ -208,7 +235,7 @@ fn root_does_not_match_siblings_or_unrelated_agents() {
         })
         .unwrap();
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].agent_id, agent("a"));
+    assert_eq!(results[0].session_id, agent("a"));
 }
 
 #[test]
@@ -228,8 +255,8 @@ fn limit_returns_most_recent_n() {
         })
         .unwrap();
     assert_eq!(results.len(), 2);
-    assert_eq!(results[0].timestamp, ts(4));
-    assert_eq!(results[1].timestamp, ts(5));
+    assert_eq!(results[0].ts, ts(4));
+    assert_eq!(results[1].ts, ts(5));
 }
 
 #[test]
@@ -267,6 +294,6 @@ fn limit_applies_after_filtering() {
         })
         .unwrap();
     assert_eq!(results.len(), 2);
-    assert_eq!(results[0].timestamp, ts(3));
-    assert_eq!(results[1].timestamp, ts(5));
+    assert_eq!(results[0].ts, ts(3));
+    assert_eq!(results[1].ts, ts(5));
 }

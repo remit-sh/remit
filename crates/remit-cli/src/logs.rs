@@ -12,7 +12,6 @@ use domain::{
     VerdictFilter,
 };
 use file_classification_history::FileClassificationHistoryReader;
-use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use crate::since;
@@ -133,21 +132,17 @@ fn render(records: &[ClassificationRecord], show_args: bool) {
 }
 
 fn print_row(r: &ClassificationRecord, show_args: bool) {
-    let ts = format_ts(r.timestamp);
-    let agent = r.agent_id.as_ref();
-    let action = r.action.as_ref();
+    let ts = r.ts.format(&Rfc3339).unwrap_or_default();
+    let agent = r.session_id.as_ref();
+    let action = r.tool_name.as_ref();
     let (verdict, reason) = match &r.verdict {
         Verdict::Green => ("green", ""),
         Verdict::Red { reason, .. } => ("red", reason.as_str()),
     };
     if show_args {
-        let args = r.args.as_ref().map(|a| a.as_ref()).unwrap_or("-");
+        let args = r.tool_input.as_deref().unwrap_or("-");
         println!("{ts}\t{agent}\t{action}\t{verdict}\t{reason}\t{args}");
     } else {
         println!("{ts}\t{agent}\t{action}\t{verdict}\t{reason}");
     }
-}
-
-fn format_ts(t: SystemTime) -> String {
-    OffsetDateTime::from(t).format(&Rfc3339).unwrap_or_default()
 }

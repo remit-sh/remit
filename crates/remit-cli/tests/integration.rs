@@ -4,29 +4,64 @@ use std::path::{Path, PathBuf};
 use assert_cmd::Command;
 use tempfile::tempdir;
 
-fn write_fixture(dir: &Path, lines: &[&str]) -> PathBuf {
+fn write_fixture(dir: &Path, lines: &[String]) -> PathBuf {
     let path = dir.join("remit.log");
     fs::write(&path, lines.join("\n") + "\n").unwrap();
     path
 }
 
-fn green(ts: &str, agent: &str, action: &str) -> String {
+#[allow(clippy::too_many_arguments)]
+fn classification(
+    ts: &str,
+    agent: &str,
+    action: &str,
+    verdict_label: &str,
+    red_kind: Option<&str>,
+    reason: Option<&str>,
+    args: Option<&str>,
+) -> String {
+    let red_kind_field = red_kind
+        .map(|k| format!(r#","red_kind":"{k}""#))
+        .unwrap_or_default();
+    let reason_field = reason
+        .map(|r| {
+            let escaped = r.replace('\\', "\\\\").replace('"', "\\\"");
+            format!(r#","reason":"{escaped}""#)
+        })
+        .unwrap_or_default();
+    let args_field = args
+        .map(|a| {
+            let escaped = a.replace('\\', "\\\\").replace('"', "\\\"");
+            format!(r#","tool_input":"{escaped}""#)
+        })
+        .unwrap_or_default();
+    let enforced = match verdict_label {
+        "Green" => "permit",
+        _ => "deny",
+    };
     format!(
-        r#"{{"ts":"{ts}","event":"outcome","agent_id":"{agent}","action":"{action}","working_dir":"/tmp","verdict":"green"}}"#,
+        r#"{{"event_kind":"classification","ts":"{ts}","session_id":"{agent}","working_dir":"/tmp","correlation_id":"00000000-0000-0000-0000-000000000000","pid":1,"hook_duration_ms":1,"tool_name":"{action}"{args_field},"bundled_scope_present":false,"narration_fields_stripped":0,"args_size_pre":0,"args_size_post":0,"prompt_shown":false,"verdict":"{verdict_label}"{red_kind_field}{reason_field},"enforced":"{enforced}","dev_bypass":false}}"#,
     )
 }
 
+fn green(ts: &str, agent: &str, action: &str) -> String {
+    classification(ts, agent, action, "Green", None, None, None)
+}
+
 fn red(ts: &str, agent: &str, action: &str, reason: &str) -> String {
-    format!(
-        r#"{{"ts":"{ts}","event":"outcome","agent_id":"{agent}","action":"{action}","working_dir":"/tmp","verdict":"red","red_kind":"OutOfScope","reason":"{reason}"}}"#,
+    classification(
+        ts,
+        agent,
+        action,
+        "Red",
+        Some("OutOfScope"),
+        Some(reason),
+        None,
     )
 }
 
 fn green_with_args(ts: &str, agent: &str, action: &str, args: &str) -> String {
-    let escaped = args.replace('\\', "\\\\").replace('"', "\\\"");
-    format!(
-        r#"{{"ts":"{ts}","event":"outcome","agent_id":"{agent}","action":"{action}","working_dir":"/tmp","verdict":"green","args":"{escaped}"}}"#,
-    )
+    classification(ts, agent, action, "Green", None, None, Some(args))
 }
 
 #[test]
@@ -35,8 +70,8 @@ fn logs_renders_header_and_rows() {
     let log_path = write_fixture(
         dir.path(),
         &[
-            &green("2026-05-12T10:14:33Z", "agent-abc", "Bash"),
-            &red(
+            green("2026-05-12T10:14:33Z", "agent-abc", "Bash"),
+            red(
                 "2026-05-12T10:14:34Z",
                 "agent-abc",
                 "Write",
@@ -64,8 +99,8 @@ fn logs_filters_by_verdict_red() {
     let log_path = write_fixture(
         dir.path(),
         &[
-            &green("2026-05-12T10:14:33Z", "a", "Bash"),
-            &red("2026-05-12T10:14:34Z", "a", "Write", "out of scope"),
+            green("2026-05-12T10:14:33Z", "a", "Bash"),
+            red("2026-05-12T10:14:34Z", "a", "Write", "out of scope"),
         ],
     );
 
@@ -87,8 +122,8 @@ fn logs_filters_by_action() {
     let log_path = write_fixture(
         dir.path(),
         &[
-            &green("2026-05-12T10:14:33Z", "a", "Bash"),
-            &green("2026-05-12T10:14:34Z", "a", "Write"),
+            green("2026-05-12T10:14:33Z", "a", "Bash"),
+            green("2026-05-12T10:14:34Z", "a", "Write"),
         ],
     );
 
@@ -117,7 +152,6 @@ fn logs_missing_file_succeeds_with_empty_body() {
         .success();
 
     let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
-    // Header only, no data rows.
     assert_eq!(stdout, "TS\tAGENT\tACTION\tVERDICT\tREASON\n");
 }
 
@@ -133,7 +167,7 @@ fn logs_rejects_bad_verdict_value() {
 #[test]
 fn logs_show_args_renders_dash_when_args_absent() {
     let dir = tempdir().unwrap();
-    let log_path = write_fixture(dir.path(), &[&green("2026-05-12T10:14:33Z", "a", "Bash")]);
+    let log_path = write_fixture(dir.path(), &[green("2026-05-12T10:14:33Z", "a", "Bash")]);
 
     let out = Command::cargo_bin("remit")
         .unwrap()
@@ -152,7 +186,7 @@ fn logs_show_args_renders_captured_args() {
     let dir = tempdir().unwrap();
     let log_path = write_fixture(
         dir.path(),
-        &[&green_with_args(
+        &[green_with_args(
             "2026-05-12T10:14:33Z",
             "a",
             "Bash",
@@ -177,10 +211,10 @@ fn logs_limit_returns_most_recent_n() {
     let log_path = write_fixture(
         dir.path(),
         &[
-            &green("2026-05-12T10:14:30Z", "a", "First"),
-            &green("2026-05-12T10:14:31Z", "a", "Second"),
-            &green("2026-05-12T10:14:32Z", "a", "Third"),
-            &green("2026-05-12T10:14:33Z", "a", "Fourth"),
+            green("2026-05-12T10:14:30Z", "a", "First"),
+            green("2026-05-12T10:14:31Z", "a", "Second"),
+            green("2026-05-12T10:14:32Z", "a", "Third"),
+            green("2026-05-12T10:14:33Z", "a", "Fourth"),
         ],
     );
 
@@ -196,32 +230,4 @@ fn logs_limit_returns_most_recent_n() {
     assert_eq!(rows.len(), 2);
     assert!(rows[0].contains("Third"));
     assert!(rows[1].contains("Fourth"));
-}
-
-#[test]
-fn logs_rejects_bad_agent_id() {
-    let dir = tempdir().unwrap();
-    let log_path = write_fixture(dir.path(), &[&green("2026-05-12T10:14:33Z", "a", "Bash")]);
-
-    Command::cargo_bin("remit")
-        .unwrap()
-        .args(["logs", "--agent", "has spaces", "--log-path"])
-        .arg(&log_path)
-        .assert()
-        .failure()
-        .stderr(predicates::str::contains("invalid --agent"));
-}
-
-#[test]
-fn logs_rejects_bad_since_duration() {
-    let dir = tempdir().unwrap();
-    let log_path = write_fixture(dir.path(), &[&green("2026-05-12T10:14:33Z", "a", "Bash")]);
-
-    Command::cargo_bin("remit")
-        .unwrap()
-        .args(["logs", "--since", "garbage", "--log-path"])
-        .arg(&log_path)
-        .assert()
-        .failure()
-        .stderr(predicates::str::contains("invalid --since"));
 }

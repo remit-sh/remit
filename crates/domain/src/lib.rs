@@ -1,7 +1,9 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use nutype::nutype;
+use uuid::Uuid;
 
 #[cfg(feature = "test-support")]
 pub mod test_support;
@@ -46,40 +48,53 @@ pub struct Action {
 }
 
 /// The agent's task. Empty / whitespace-only is rejected at the boundary.
+/// Capped at 8 KiB **bytes** as defence-in-depth for downstream storage
+/// (TN-2026-016). Byte cap is intentional: bounds wire/storage size, not
+/// user-perceived length.
 #[nutype(
-    validate(predicate = |s: &str| !s.trim().is_empty()),
+    validate(predicate = |s: &str| {
+        !s.trim().is_empty() && s.len() <= 8 * 1024
+    }),
     derive(Clone, Debug, Display, PartialEq, Eq, Hash, AsRef)
 )]
 pub struct Scope(String);
 
-pub struct Agent {
-    pub id: AgentId,
-    pub parent_id: Option<AgentId>,
+/// Identity of one agent — root session or subagent. Root-vs-subagent is
+/// type-level: a `Subagent` is guaranteed to carry a `parent_id`, a `Root` is
+/// guaranteed not to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Agent {
+    Root { id: AgentId },
+    Subagent { id: AgentId, parent_id: AgentId },
 }
 
 impl Agent {
     pub fn root(id: AgentId) -> Self {
-        Self {
-            id,
-            parent_id: None,
-        }
+        Self::Root { id }
     }
 
     /// Self-referential parent (`id == parent`) collapses to root — defends
     /// against malformed env / payload state.
-    pub fn subagent(id: AgentId, parent: AgentId) -> Self {
-        if id == parent {
-            Self::root(id)
+    pub fn subagent(id: AgentId, parent_id: AgentId) -> Self {
+        if id == parent_id {
+            Self::Root { id }
         } else {
-            Self {
-                id,
-                parent_id: Some(parent),
-            }
+            Self::Subagent { id, parent_id }
         }
     }
 
-    pub fn has_parent(&self) -> bool {
-        self.parent_id.is_some()
+    pub fn id(&self) -> &AgentId {
+        match self {
+            Self::Root { id } => id,
+            Self::Subagent { id, .. } => id,
+        }
+    }
+
+    pub fn parent_id(&self) -> Option<&AgentId> {
+        match self {
+            Self::Root { .. } => None,
+            Self::Subagent { parent_id, .. } => Some(parent_id),
+        }
     }
 }
 
@@ -87,6 +102,42 @@ pub struct ClassificationInput {
     pub agent: Agent,
     pub action: Action,
     pub working_dir: PathBuf,
+    /// Stable correlation key joining events to the final classification row.
+    /// Composition root mints at entry; events fire mid-call carrying this;
+    /// the final `write(record)` carries it. Independent of `CallId` (which is
+    /// `Option` in payloads).
+    pub correlation_id: CorrelationId,
+}
+
+/// UUID v4 minted at hook entry. The join key between mid-call events and the
+/// final classification row.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct CorrelationId(Uuid);
+
+impl CorrelationId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    pub fn from_uuid(uuid: Uuid) -> Self {
+        Self(uuid)
+    }
+
+    pub fn as_uuid(&self) -> &Uuid {
+        &self.0
+    }
+}
+
+impl Default for CorrelationId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Display for CorrelationId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -114,36 +165,57 @@ pub enum RedKind {
     StandingGuidanceUnavailable,
 }
 
-/// Outbound write port on the classification history. Per
-/// [`process_action`] call: one `record_incoming`, one `record_outcome`,
-/// plus `record_error` on port failures and `record_event` for in-flight
-/// state transitions (see TN-2026-010 for the event catalogue).
+/// Outbound write port on the classification history. One [`write`] per
+/// `process_action` call (the final transactional row); zero or more
+/// [`write_event`] mid-call (lifecycle hooks + state transitions, eager so
+/// they survive a crashed classification).
 ///
-/// `record_custom` is the escape hatch for adapter-specific events the
-/// domain doesn't model (e.g. hook lifecycle, bundled-scope handoffs in
-/// the Claude Code adapter). The writer doesn't interpret `payload` —
-/// it should be a JSON object whose fields are merged into the line
-/// alongside the writer's `ts`, `event: <kind>`, and `markers`.
-/// Non-object payloads are recorded with no extra fields.
+/// Methods return `Result<(), HistoryError>`. NDJSON adapter (today) swallows
+/// IO errors internally and returns `Ok(())` — ADR-0002 best-effort logging
+/// carve-out preserved. SQLite (#38) will propagate `Err` for fail-closed
+/// audit; the port shape doesn't change at that point.
 pub trait ClassificationHistoryWriter {
-    fn record_incoming(&self, input: &ClassificationInput);
-    fn record_outcome(&self, input: &ClassificationInput, verdict: &Verdict);
-    fn record_error(&self, input: &ClassificationInput, error: &(dyn std::error::Error + 'static));
-    fn record_event(&self, input: &ClassificationInput, event: &str);
-
-    /// Record an adapter-lifecycle hook firing. The hook name is
-    /// adapter-chosen (Claude Code: `PreToolUse`, `SubagentStart`,
-    /// `SessionStart`; other adapters may use their own labels). The
-    /// concept — "the firewall was invoked because the host runtime
-    /// reached a notable moment" — is universal.
-    fn record_hook_event(&self, name: &str);
-
-    fn record_custom(&self, kind: &str, payload: serde_json::Value);
+    fn write(&self, record: ClassificationRecord) -> Result<(), HistoryError>;
+    fn write_event(&self, event: ClassificationEvent) -> Result<(), HistoryError>;
 }
 
-pub enum LlmDecision {
-    Green,
-    Red { reason: String },
+#[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
+pub enum HistoryError {
+    #[error("classification history unavailable")]
+    Unavailable(#[source] Box<dyn std::error::Error + Send + Sync>),
+}
+
+/// Discriminator on mid-call events. Lifecycle = composition-root chatter
+/// (`hook-event`, `stage-pending`, `claim-pending`, `invalid-agent-type`).
+/// StateTransition = state changes inside `process_action` (prompt-shown,
+/// user-allow, scope-changed-during-wait, etc.).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EventKind {
+    Lifecycle,
+    StateTransition,
+}
+
+impl EventKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Lifecycle => "lifecycle",
+            Self::StateTransition => "state-transition",
+        }
+    }
+}
+
+pub struct ClassificationEvent {
+    pub ts: time::OffsetDateTime,
+    pub session_id: Option<AgentId>,
+    pub correlation_id: Option<CorrelationId>,
+    pub kind: EventKind,
+    pub message: String,
+    /// Typed extension fields. Domain stays free of `serde_json`; adapter
+    /// serialises to JSON for storage. Anything nested becomes a typed field
+    /// on this struct rather than a nested object in `details`.
+    pub details: BTreeMap<String, String>,
+    pub dev_bypass: bool,
 }
 
 /// Inputs to a single LLM classification: action + scope (both untrusted,
@@ -225,9 +297,52 @@ pub enum LlmClassifierError {
     Unavailable(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
-/// Semantic-firewall port. Any error fails closed (Red) upstream.
+/// Semantic-firewall port. Any error fails closed (Red) upstream. The outcome
+/// carries the verdict plus telemetry (raw verdict, raw reason, latency,
+/// tokens, model name) for the audit row.
 pub trait LlmClassifier {
-    fn classify(&self, ctx: &ClassificationContext) -> Result<LlmDecision, LlmClassifierError>;
+    fn classify(
+        &self,
+        ctx: &ClassificationContext,
+    ) -> Result<ClassifierOutcome, LlmClassifierError>;
+}
+
+/// Pre-mapping verdict string returned by the model. Stored on the audit row
+/// for forensic analysis alongside the domain-mapped [`Verdict`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RawVerdict {
+    Green,
+    Red,
+}
+
+impl RawVerdict {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Green => "green",
+            Self::Red => "red",
+        }
+    }
+}
+
+/// Domain-side enriched return type of [`LlmClassifier::classify`] and
+/// [`Classifier::classify`]. Carries the verdict plus telemetry for the audit
+/// row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClassifierOutcome {
+    pub verdict: Verdict,
+    pub raw_verdict: RawVerdict,
+    pub raw_reason: Option<String>,
+    /// LLM-specific call stats. `None` for non-LLM classifiers (heuristic,
+    /// rule-based, etc.); future-proofs the type without faking fields.
+    pub llm: Option<LlmCallStats>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LlmCallStats {
+    pub model: String,
+    pub latency: Duration,
+    pub input_tokens: Option<u32>,
+    pub output_tokens: Option<u32>,
 }
 
 /// Outbound port that yields the **Standing guidance** for one classification —
@@ -348,30 +463,28 @@ pub struct PromptingDeps<'a, P: Prompter, K: PromptLock> {
 }
 
 mod flow;
-pub use flow::{process_action, resolve_scope};
+pub use flow::{ProcessActionResult, process_action, resolve_scope};
 
-/// Outbound query port: read access to the **classification log**.
-/// Adapter-agnostic; implementations back this with whatever storage
-/// they like (NDJSON file today, SQLite tomorrow per #38).
+/// Outbound query port: read access to the classification log. Adapter-
+/// agnostic; implementations back this with whatever storage they like (NDJSON
+/// file today, SQLite tomorrow per #38).
 ///
-/// Returns records in append order (approximately chronological under
-/// the writer's exclusive-lock contract). Filters are applied in-memory
-/// against the result set.
+/// Returns records in append order (approximately chronological under the
+/// writer's exclusive-lock contract). Filters are applied in-memory against
+/// the result set.
 pub trait ClassificationHistoryReader {
     fn query(&self, query: &HistoryQuery) -> Result<Vec<ClassificationRecord>, HistoryQueryError>;
 }
 
-/// Filter set for a `remit logs` query. All fields are optional;
+/// Filter set for a `remit logs` query. All fields optional;
 /// `HistoryQuery::default()` matches every record.
 ///
-/// `root_agent_id` resolves to "all descendants of this **Agent**" via
-/// the parent-agent chain reconstructable from the records themselves.
-/// No persistent root id; the adapter builds the child→parent map at
-/// query time.
+/// `root_agent_id` resolves to "all descendants of this **Agent**" via the
+/// parent-agent chain reconstructable from the records themselves. No
+/// persistent root id; the adapter builds the child→parent map at query time.
 ///
-/// `limit` returns the **most recent** N records (after filtering).
-/// `Some(0)` is treated as unlimited; the CLI surface should map `0`
-/// to `None` for clarity.
+/// `limit` returns the **most recent** N records (after filtering). `Some(0)`
+/// is treated as unlimited; the CLI surface should map `0` to `None`.
 #[derive(Debug, Default, Clone)]
 pub struct HistoryQuery {
     pub agent_id: Option<AgentId>,
@@ -382,31 +495,169 @@ pub struct HistoryQuery {
     pub limit: Option<usize>,
 }
 
-/// User-facing verdict filter. Distinct from [`Verdict`] because the
-/// CLI doesn't filter on `RedKind` or `reason` — only on the binary
-/// Green/Red axis.
+/// User-facing verdict filter. Distinct from [`Verdict`] because the CLI
+/// doesn't filter on `RedKind` or `reason` — only on the binary Green/Red
+/// axis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerdictFilter {
     Green,
     Red,
 }
 
-/// One classified action as materialised for query consumers.
-/// Composed from `outcome` records in the underlying log; the adapter
-/// also reads `incoming` records to reconstruct the parent chain for
-/// root-descendant resolution.
+/// Where the scope used for this classification came from. Populated by
+/// `process_action` so the audit row records scope provenance.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScopeOrigin {
+    PreExisting,
+    ClaimedFromPending,
+    Fresh,
+    Edited,
+}
+
+impl ScopeOrigin {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::PreExisting => "pre-existing",
+            Self::ClaimedFromPending => "claimed-from-pending",
+            Self::Fresh => "fresh",
+            Self::Edited => "edited",
+        }
+    }
+}
+
+/// Final enforcement decision after `dev_bypass` has been applied to the
+/// process's `verdict`. Composition root sets this on the record via
+/// [`resolve_enforcement`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Enforced {
+    Permit,
+    Deny,
+}
+
+impl Enforced {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Permit => "permit",
+            Self::Deny => "deny",
+        }
+    }
+}
+
+/// Why `enforced` differs from `initial_verdict`, or `None` when the
+/// classifier's first answer carried through unchanged.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OverrideAction {
+    UserAllow,
+    UserDeny,
+    UpdateScope,
+    DisableSession,
+    DevBypass,
+}
+
+impl OverrideAction {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::UserAllow => "user-allow",
+            Self::UserDeny => "user-deny",
+            Self::UpdateScope => "update-scope",
+            Self::DisableSession => "disable-session",
+            Self::DevBypass => "dev-bypass",
+        }
+    }
+}
+
+/// Resolve the final enforcement decision against `dev_bypass`. Pure
+/// function, testable without a composition root. Composition root applies
+/// this after `process_action` returns and stores the result on the
+/// [`ClassificationRecord`].
+pub fn resolve_enforcement(
+    verdict: &Verdict,
+    dev_bypass: bool,
+) -> (Enforced, Option<OverrideAction>) {
+    match (verdict, dev_bypass) {
+        (Verdict::Green, _) => (Enforced::Permit, None),
+        (Verdict::Red { .. }, true) => (Enforced::Permit, Some(OverrideAction::DevBypass)),
+        (Verdict::Red { .. }, false) => (Enforced::Deny, None),
+    }
+}
+
+/// One row's-worth of forensic data about a single `process_action` call.
+/// Built up by the prompt flow + composition root and written once at end.
+/// See TN-2026-016 for the field semantics.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassificationRecord {
-    pub timestamp: SystemTime,
-    pub agent_id: AgentId,
-    pub parent_agent_id: Option<AgentId>,
-    pub action: ActionKind,
-    pub verdict: Verdict,
+    pub ts: time::OffsetDateTime,
+    // identity
+    pub session_id: AgentId,
+    pub parent_id: Option<AgentId>,
+    pub agent_type: Option<AgentType>,
     pub working_dir: PathBuf,
-    /// Opaque, adapter-stringified action args. `Some` only when the
-    /// record was captured under `debug_mode`. Domain treats this as
-    /// data — no parsing, no semantic interpretation.
-    pub args: Option<ActionArgs>,
+    pub call_id: Option<CallId>,
+    pub correlation_id: CorrelationId,
+    pub pid: u32,
+    pub hook_duration: Duration,
+    // action
+    pub tool_name: ActionKind,
+    /// Populated by composition root only when `cfg.debug_mode = true`.
+    pub tool_input: Option<String>,
+    pub bundled_scope_present: bool,
+    pub narration_fields_stripped: u32,
+    pub args_size_pre: u32,
+    pub args_size_post: u32,
+    // scope
+    pub scope: Option<Scope>,
+    pub scope_origin: Option<ScopeOrigin>,
+    // standing guidance
+    // LLM call (Some only when classifier ran)
+    pub llm_outcome: Option<RecordedClassifierOutcome>,
+    // prompt interaction
+    pub prompt_shown: bool,
+    pub prompt_latency: Option<Duration>,
+    pub lock_wait: Option<Duration>,
+    // verdict (layered)
+    pub initial_verdict: Option<Verdict>,
+    pub verdict: Verdict,
+    pub enforced: Enforced,
+    pub override_action: Option<OverrideAction>,
+    // error & dev-bypass
+    pub error_chain: Option<String>,
+    pub dev_bypass: bool,
+    // extension
+    pub details: BTreeMap<String, String>,
+}
+
+/// Materialised snapshot of a [`ClassifierOutcome`] for storage on the
+/// record. Decouples the on-disk shape from the live outcome (which carries
+/// the Verdict reference into process_action). Implements `PartialEq` so the
+/// record can be a value type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordedClassifierOutcome {
+    pub raw_verdict: RawVerdict,
+    pub raw_reason: Option<String>,
+    pub llm: Option<RecordedLlmCallStats>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordedLlmCallStats {
+    pub model: String,
+    pub latency: Duration,
+    pub input_tokens: Option<u32>,
+    pub output_tokens: Option<u32>,
+}
+
+impl From<&ClassifierOutcome> for RecordedClassifierOutcome {
+    fn from(o: &ClassifierOutcome) -> Self {
+        Self {
+            raw_verdict: o.raw_verdict,
+            raw_reason: o.raw_reason.clone(),
+            llm: o.llm.as_ref().map(|l| RecordedLlmCallStats {
+                model: l.model.clone(),
+                latency: l.latency,
+                input_tokens: l.input_tokens,
+                output_tokens: l.output_tokens,
+            }),
+        }
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -416,9 +667,10 @@ pub enum HistoryQueryError {
     Unavailable(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
-/// Maps one [`ClassificationInput`] to one [`Verdict`]. Scope absent → Red
-/// with the appropriate [`RedKind`]; adapter errors fail-closed to Red. Pure
-/// — observability is owned by [`process_action`].
+/// Maps one [`ClassificationInput`] + scope to one [`ClassifierOutcome`].
+/// Scope absent → synthesised Red outcome with the appropriate [`RedKind`];
+/// adapter errors fail-closed to Red. Pure — observability is owned by
+/// [`process_action`].
 pub struct Classifier<C: LlmClassifier> {
     llm: C,
 }
@@ -433,7 +685,7 @@ impl<C: LlmClassifier> Classifier<C> {
         input: &ClassificationInput,
         scope: Option<&Scope>,
         standing: &StandingGuidance,
-    ) -> Verdict {
+    ) -> ClassifierOutcome {
         match scope {
             Some(scope) => {
                 let ctx = ClassificationContext {
@@ -442,26 +694,37 @@ impl<C: LlmClassifier> Classifier<C> {
                     standing,
                 };
                 match self.llm.classify(&ctx) {
-                    Ok(LlmDecision::Green) => Verdict::Green,
-                    Ok(LlmDecision::Red { reason }) => Verdict::Red {
-                        kind: RedKind::OutOfScope,
-                        reason,
-                    },
-                    Err(LlmClassifierError::Unavailable(e)) => Verdict::Red {
-                        kind: RedKind::ClassifierUnavailable,
-                        reason: format!("classifier unavailable: {e}"),
+                    Ok(outcome) => outcome,
+                    Err(LlmClassifierError::Unavailable(e)) => ClassifierOutcome {
+                        verdict: Verdict::Red {
+                            kind: RedKind::ClassifierUnavailable,
+                            reason: format!("classifier unavailable: {e}"),
+                        },
+                        raw_verdict: RawVerdict::Red,
+                        raw_reason: None,
+                        llm: None,
                     },
                 }
             }
-            None if input.agent.has_parent() => Verdict::Red {
-                kind: RedKind::SubagentMissingScope,
-                reason: "subagent has no scope; parent's spawn payload missing or staging failed"
-                    .into(),
-            },
-            None => Verdict::Red {
-                kind: RedKind::NoScopeRoot,
-                reason: "no scope set for this agent".into(),
-            },
+            None => {
+                let (kind, reason) = match &input.agent {
+                    Agent::Subagent { .. } => (
+                        RedKind::SubagentMissingScope,
+                        "subagent has no scope; parent's spawn payload missing or staging failed"
+                            .to_string(),
+                    ),
+                    Agent::Root { .. } => (
+                        RedKind::NoScopeRoot,
+                        "no scope set for this agent".to_string(),
+                    ),
+                };
+                ClassifierOutcome {
+                    verdict: Verdict::Red { kind, reason },
+                    raw_verdict: RawVerdict::Red,
+                    raw_reason: None,
+                    llm: None,
+                }
+            }
         }
     }
 }

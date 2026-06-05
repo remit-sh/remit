@@ -3,8 +3,8 @@ use std::thread;
 
 use anthropic_classifier::AnthropicClassifier;
 use domain::{
-    Action, ActionArgs, ActionKind, ClassificationContext, LlmClassifier, LlmDecision, Scope,
-    StandingGuidance,
+    Action, ActionArgs, ActionKind, ClassificationContext, LlmClassifier, RawVerdict, Scope,
+    StandingGuidance, Verdict,
 };
 use tiny_http::{Header, Response, Server};
 
@@ -91,10 +91,14 @@ fn classify_sends_post_with_required_headers_and_forces_verdict_tool() {
     );
     let classifier = AnthropicClassifier::new("sk-test".into(), "claude-haiku-4-5".into())
         .with_endpoint(mock.url.clone());
-    let decision = classifier
+    let outcome = classifier
         .classify(&ctx(&action(), &scope(), &StandingGuidance::default()))
         .unwrap();
-    assert!(matches!(decision, LlmDecision::Green));
+    assert!(matches!(outcome.verdict, Verdict::Green));
+    assert_eq!(outcome.raw_verdict, RawVerdict::Green);
+    let stats = outcome.llm.expect("LlmCallStats populated");
+    assert_eq!(stats.model, "claude-haiku-4-5");
+    assert!(stats.latency >= std::time::Duration::ZERO);
 
     let captured = mock.captured.lock().unwrap();
     let req = captured.as_ref().expect("request was captured");
@@ -116,13 +120,15 @@ fn classify_returns_red_when_server_says_red() {
     );
     let classifier = AnthropicClassifier::new("sk-test".into(), "claude-haiku-4-5".into())
         .with_endpoint(mock.url);
-    let LlmDecision::Red { reason } = classifier
+    let outcome = classifier
         .classify(&ctx(&action(), &scope(), &StandingGuidance::default()))
-        .unwrap()
-    else {
+        .unwrap();
+    let Verdict::Red { reason, .. } = &outcome.verdict else {
         panic!("expected Red");
     };
     assert_eq!(reason, "unrelated");
+    assert_eq!(outcome.raw_verdict, RawVerdict::Red);
+    assert_eq!(outcome.raw_reason.as_deref(), Some("unrelated"));
 }
 
 #[test]
