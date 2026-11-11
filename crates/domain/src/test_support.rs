@@ -98,6 +98,17 @@ where
         Some(pending_2.clone())
     );
 
+    // clear_pending: drops a staged row; absent row is not an error.
+    store.set_pending(&parent_a, pending_1.clone()).unwrap();
+    store.set_pending(&parent_b, pending_2.clone()).unwrap();
+    store.clear_pending(&parent_a).unwrap();
+    assert!(matches!(store.take_pending(&parent_a), Ok(None)));
+    store.clear_pending(&parent_a).unwrap();
+    assert_eq!(
+        store.take_pending(&parent_b).unwrap(),
+        Some(pending_2.clone())
+    );
+
     // ----- Disable marker -----
     let disable_a = AgentId::try_new("contract-test-disable-a").unwrap();
     let disable_b = AgentId::try_new("contract-test-disable-b").unwrap();

@@ -39,39 +39,45 @@ fn agent_tool_bundles_prompt_as_scope() {
         "subagent_type": "general-purpose",
     });
     assert_eq!(
-        bundled_scope_from("Agent", &input),
-        Some("Read README and report char count.".to_string())
+        bundled_text_from("Agent", &input),
+        Some("Read README and report char count.")
     );
 }
 
 #[test]
-fn unknown_tool_has_no_bundled_scope() {
+fn unknown_tool_has_no_bundled_text() {
     let input = serde_json::json!({ "prompt": "irrelevant" });
-    assert_eq!(bundled_scope_from("Bash", &input), None);
+    assert_eq!(bundled_text_from("Bash", &input), None);
 }
 
 #[test]
-fn missing_field_has_no_bundled_scope() {
+fn missing_field_is_empty_bundled_text() {
     let input = serde_json::json!({ "subagent_type": "general-purpose" });
-    assert_eq!(bundled_scope_from("Agent", &input), None);
+    assert_eq!(bundled_text_from("Agent", &input), Some(""));
 }
 
 #[test]
-fn empty_field_has_no_bundled_scope() {
+fn empty_field_is_empty_bundled_text() {
     let input = serde_json::json!({ "prompt": "" });
-    assert_eq!(bundled_scope_from("Agent", &input), None);
+    assert_eq!(bundled_text_from("Agent", &input), Some(""));
 }
 
 #[test]
-fn whitespace_only_field_has_no_bundled_scope() {
+fn whitespace_only_field_is_kept_as_bundled_text() {
     let input = serde_json::json!({ "prompt": "   \n\t " });
-    assert_eq!(bundled_scope_from("Agent", &input), None);
+    assert_eq!(
+        bundled_text_from("Agent", &input),
+        Some(
+            "   
+	 "
+        )
+    );
 }
 
 #[test]
-fn non_string_field_has_no_bundled_scope() {
+fn non_string_field_is_empty_bundled_text() {
     let input = serde_json::json!({ "prompt": 42 });
-    assert_eq!(bundled_scope_from("Agent", &input), None);
+    assert_eq!(bundled_text_from("Agent", &input), Some(""));
 }
 
 #[test]
@@ -82,33 +88,39 @@ fn send_message_bundles_content_as_scope() {
         "to": "scout",
     });
     assert_eq!(
-        bundled_scope_from("SendMessage", &input),
-        Some("Run the test suite and report failures.".to_string())
+        bundled_text_from("SendMessage", &input),
+        Some("Run the test suite and report failures.")
     );
 }
 
 #[test]
-fn send_message_missing_content_has_no_bundled_scope() {
+fn send_message_missing_content_is_empty_bundled_text() {
     let input = serde_json::json!({ "recipient": "scout", "to": "scout" });
-    assert_eq!(bundled_scope_from("SendMessage", &input), None);
+    assert_eq!(bundled_text_from("SendMessage", &input), Some(""));
 }
 
 #[test]
-fn send_message_empty_content_has_no_bundled_scope() {
+fn send_message_empty_content_is_empty_bundled_text() {
     let input = serde_json::json!({ "content": "", "recipient": "scout" });
-    assert_eq!(bundled_scope_from("SendMessage", &input), None);
+    assert_eq!(bundled_text_from("SendMessage", &input), Some(""));
 }
 
 #[test]
-fn send_message_whitespace_content_has_no_bundled_scope() {
+fn send_message_whitespace_content_is_kept_as_bundled_text() {
     let input = serde_json::json!({ "content": "  \n\t ", "recipient": "scout" });
-    assert_eq!(bundled_scope_from("SendMessage", &input), None);
+    assert_eq!(
+        bundled_text_from("SendMessage", &input),
+        Some(
+            "  
+	 "
+        )
+    );
 }
 
 #[test]
-fn send_message_non_string_content_has_no_bundled_scope() {
+fn send_message_non_string_content_is_empty_bundled_text() {
     let input = serde_json::json!({ "content": { "type": "shutdown_request" } });
-    assert_eq!(bundled_scope_from("SendMessage", &input), None);
+    assert_eq!(bundled_text_from("SendMessage", &input), Some(""));
 }
 
 /// Snapshot the bundled-scope allowlist so adding a new entry is a deliberate,
@@ -250,10 +262,7 @@ fn bundled_scope_extraction_survives_strip_on_same_payload() {
         "prompt": "do thing",
         "description": "narrator says hi",
     });
-    assert_eq!(
-        bundled_scope_from("Agent", &raw),
-        Some("do thing".to_string())
-    );
+    assert_eq!(bundled_text_from("Agent", &raw), Some("do thing"));
     let mut stripped = raw.clone();
     strip_narration(&mut stripped);
     assert_eq!(stripped, serde_json::json!({ "prompt": "do thing" }));
@@ -370,6 +379,9 @@ impl AgentStore for MockStore {
     fn take_pending(&self, _: &AgentId) -> Result<Option<Scope>, ScopeStoreError> {
         unimplemented!()
     }
+    fn clear_pending(&self, _: &AgentId) -> Result<(), ScopeStoreError> {
+        unimplemented!()
+    }
     fn is_disabled(&self, _: &AgentId) -> Result<bool, ScopeStoreError> {
         unimplemented!()
     }
@@ -456,4 +468,156 @@ fn narration_fields_denylist_is_pinned() {
             "summary",
         ]
     );
+}
+
+mod user_prompt_submit {
+    use domain::{Agent, AgentId, AssignExtractedScopeResult, LlmClassifierError, ScopeStoreError};
+
+    use crate::agent_from;
+    use crate::user_prompt::{UserPromptSubmitPayload, outcome_parts};
+
+    fn id(s: &str) -> AgentId {
+        AgentId::try_new(s).unwrap()
+    }
+
+    #[test]
+    fn payload_parses_the_traced_wire_shape() {
+        // Shape per docs/diag/user-prompt-submit-dump.log.
+        let raw = serde_json::json!({
+            "session_id": "4a7b3990-fa86-42ae-8393-068a4dc04fd8",
+            "transcript_path": "/x.jsonl",
+            "cwd": "/proj",
+            "prompt_id": "29fd0ee8",
+            "permission_mode": "default",
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": "/diag-cmd 42",
+        });
+        assert!(serde_json::from_value::<UserPromptSubmitPayload>(raw).is_ok());
+    }
+
+    #[test]
+    fn payload_without_prompt_is_rejected() {
+        let raw = serde_json::json!({ "session_id": "s" });
+        assert!(serde_json::from_value::<UserPromptSubmitPayload>(raw).is_err());
+    }
+
+    #[test]
+    fn session_without_parent_is_a_root_agent() {
+        assert_eq!(
+            agent_from(id("sess"), None, |_| None),
+            Agent::root(id("sess"))
+        );
+    }
+
+    #[test]
+    fn session_with_env_parent_is_a_subagent() {
+        assert_eq!(
+            agent_from(id("sess"), None, |_| Some(id("parent"))),
+            Agent::subagent(id("sess"), id("parent"))
+        );
+    }
+
+    #[test]
+    fn payload_agent_id_is_a_subagent_of_the_session() {
+        assert_eq!(
+            agent_from(id("sess"), Some(id("child")), |_| None),
+            Agent::subagent(id("child"), id("sess"))
+        );
+    }
+
+    #[test]
+    fn outcome_labels_are_pinned() {
+        let llm_err = || LlmClassifierError::Unavailable("llm down".into());
+        let store_err = || ScopeStoreError::Unavailable("disk".into());
+        assert_eq!(
+            outcome_parts(&AssignExtractedScopeResult::Assigned),
+            ("assigned", None)
+        );
+        assert_eq!(
+            outcome_parts(&AssignExtractedScopeResult::NotRoot),
+            ("not_root", None)
+        );
+        assert_eq!(
+            outcome_parts(&AssignExtractedScopeResult::Disabled),
+            ("disabled", None)
+        );
+        assert_eq!(
+            outcome_parts(&AssignExtractedScopeResult::AlreadyScoped),
+            ("already_scoped", None)
+        );
+        assert_eq!(
+            outcome_parts(&AssignExtractedScopeResult::NoScope),
+            ("no_scope", None)
+        );
+        assert_eq!(
+            outcome_parts(&AssignExtractedScopeResult::ExtractionUnavailable(llm_err())),
+            ("extraction_unavailable", Some("llm down".into()))
+        );
+        assert_eq!(
+            outcome_parts(&AssignExtractedScopeResult::StoreUnavailable(store_err())),
+            (
+                "store_unavailable",
+                Some("scope backend unavailable".into())
+            )
+        );
+    }
+}
+
+mod stage_pending_outcome {
+    use domain::{
+        AgentId, AgentStore, LlmClassifierError, Scope, ScopeStoreError, StageExtractedScopeResult,
+    };
+    use file_classification_history::FileClassificationHistoryWriter;
+    use file_scope_store::FileAgentStore;
+
+    use crate::bundled_scope::{discard_pending, stage_outcome_parts};
+
+    #[test]
+    fn outcome_labels_are_pinned() {
+        assert_eq!(
+            stage_outcome_parts(&StageExtractedScopeResult::Staged),
+            ("staged", None)
+        );
+        assert_eq!(
+            stage_outcome_parts(&StageExtractedScopeResult::NoScope),
+            ("no_scope", None)
+        );
+        assert_eq!(
+            stage_outcome_parts(&StageExtractedScopeResult::ExtractionUnavailable(
+                LlmClassifierError::Unavailable("llm down".into())
+            )),
+            ("extraction_unavailable", Some("llm down".into()))
+        );
+        assert_eq!(
+            stage_outcome_parts(&StageExtractedScopeResult::StoreUnavailable(
+                ScopeStoreError::Unavailable("disk".into())
+            )),
+            (
+                "store_unavailable",
+                Some("scope backend unavailable".into())
+            )
+        );
+    }
+
+    #[test]
+    fn discard_pending_drops_the_row_staged_for_a_denied_spawn() {
+        let dir = tempfile::tempdir().unwrap();
+        let agent_store = FileAgentStore::new(dir.path().join("agents"));
+        let log_path = dir.path().join("remit.log");
+        let writer = FileClassificationHistoryWriter::new(log_path.clone());
+        let parent = AgentId::try_new("parent").unwrap();
+        agent_store
+            .set_pending(
+                &parent,
+                Scope::try_new("staged for a denied spawn").unwrap(),
+            )
+            .unwrap();
+
+        discard_pending(&parent, &agent_store, &writer);
+
+        assert_eq!(agent_store.take_pending(&parent).unwrap(), None);
+        let log = std::fs::read_to_string(log_path).unwrap();
+        assert!(log.contains("stage_pending: discarded"));
+        assert!(!log.contains("staged for a denied spawn"));
+    }
 }

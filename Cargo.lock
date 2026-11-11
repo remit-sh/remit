@@ -211,6 +211,7 @@ dependencies = [
  "serde",
  "serde_json",
  "swift-prompter",
+ "tempfile",
  "time",
 ]
 

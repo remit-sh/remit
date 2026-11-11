@@ -24,3 +24,4 @@ See [TN-2026-001](TN-2026-001-technical-notes-and-doc-structure.md) for the syst
 | [TN-2026-014](TN-2026-014-swift-prompter-hang.md) | Swift prompter hang — surface-budget timeout + actionable Red | plan | active |
 | [TN-2026-015](TN-2026-015-prompter-dialogs-swiftui-visual-rebuild.md) | Prompter dialogs — SwiftUI visual rebuild | plan | draft |
 | [TN-2026-016](TN-2026-016-rich-classification-record.md) | Rich classification record + single-write history port | plan | active |
+| [TN-2026-017](TN-2026-017-extract-scope-from-text.md) | Extract Agent scope from text | plan | active |

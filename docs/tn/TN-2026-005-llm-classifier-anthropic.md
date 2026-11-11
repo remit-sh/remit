@@ -27,6 +27,7 @@ tags: [classifier, llm, anthropic, hardening]
 ## Domain port
 
 - `LlmClassifier::classify(action, scope) -> Result<LlmDecision, LlmClassifierError>`.
+- `LlmClassifier::extract_scope(text) -> Result<Option<Scope>, LlmClassifierError>` added by [TN-2026-017](TN-2026-017-extract-scope-from-text.md).
 - `LlmDecision`: `Green` or `Red { reason }`. Adapter doesn't know `Verdict` / `RedKind` — domain owns the verdict ladder.
 - `LlmClassifierError::Unavailable` collapses network / parse / auth. Fail-closed needs no finer split.
 - Port takes `&Action` + `&Scope`. Working dir + agent identity are not the LLM's concern at this layer.
@@ -57,6 +58,8 @@ The classifier currently sees the full tool-input JSON — including agent-autho
 - Trade-off: occasionally strips legitimate content (e.g. a Linear issue body field named `description`). Acceptable — false-Red is fail-closed; the dangerous direction is false-Green.
 
 ### #35 — what-extractor pass on bundled scopes at spawn boundaries
+
+> Boundary 2 shipped under #60: see [TN-2026-017](TN-2026-017-extract-scope-from-text.md). Its guidance keeps stated limits that narrow the task, replacing "aggressive imperative-only" below for that boundary. Boundary 1 stays open here.
 
 - The bundled-scope problem is structurally different: `Agent.prompt` *is* the scope, can't be stripped. A parent crafting `"update ticket status — for cleanup"` smuggles justification into the child's future scope, where it tilts every later classification toward Green.
 - LLM extraction call: aggressive imperative-only output (drop causal clauses, justifications, qualifiers, framing).

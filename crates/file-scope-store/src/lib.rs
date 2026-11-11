@@ -95,6 +95,14 @@ impl AgentStore for FileAgentStore {
         Ok(scope)
     }
 
+    fn clear_pending(&self, parent: &AgentId) -> Result<(), ScopeStoreError> {
+        match fs::remove_file(self.pending_path(parent)) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(ScopeStoreError::Unavailable(Box::new(e))),
+        }
+    }
+
     fn is_disabled(&self, agent_id: &AgentId) -> Result<bool, ScopeStoreError> {
         match fs::metadata(self.disabled_path(agent_id)) {
             Ok(_) => Ok(true),

@@ -19,9 +19,10 @@ Single context — no per-package contexts (no `CONTEXT-MAP.md` needed).
 | Term | Definition | Aliases to avoid |
 | --- | --- | --- |
 | **Agent** | Domain umbrella for any scope-bearing runtime instance — top-level or **Subagent**, in-process or peer process. Cross-runtime: a Claude Code session, a Claude Code in-process subagent, a Cursor agent, a Codex task, etc., are all **Agents**. | Session (runtime-specific), worker, instance |
-| **Subagent** | A child **Agent** with its own **Scope**, set by the parent at spawn time (extracted from the spawn-tool payload). Runtime-agnostic. | Spawn, team member, child session |
+| **Subagent** | A child **Agent** with its own **Scope**, set by the parent at spawn time (distilled from the spawn-tool payload). Runtime-agnostic. | Spawn, team member, child session |
 | **Session** | A Claude-Code-specific runtime term: one forked `claude` process. Use only when discussing Claude Code internals. The domain term is **Agent**. | — |
-| **Bundled scope** | The **Scope** carried in a parent's spawn-tool payload (e.g. `Agent.prompt`) that the hook lifts as the child's scope at spawn time. | Inherited scope (no longer used) |
+| **Bundled scope** | The **Scope** carried in a parent's spawn-tool payload (e.g. `Agent.prompt`). The hook stages its **Extracted scope** as the child's scope at spawn time. | Inherited scope (no longer used) |
+| **Extracted scope** | A **Scope** distilled by the LLM from free text: the user's prompt for a root **Agent**, the **Bundled scope** for a **Subagent**. Keeps the what, drops the why. | Inferred scope, auto scope, prompt scope |
 | **Agent type** | Runtime-supplied label for an **Agent**'s role (e.g. `architect`, `test-writer`, `general-purpose`). Carried in hook payloads for typed Agents (in-process **Subagents** and peer-process team Subagents); absent for root Agents. Selection key for **Agent template**. | role, kind, agent kind |
 
 ## Classification
@@ -50,6 +51,7 @@ Single context — no per-package contexts (no `CONTEXT-MAP.md` needed).
 
 - An **Agent** has exactly one **Scope**.
 - A **Subagent** has its own **Scope**, set by the parent at spawn time. No inheritance.
+- A root **Agent**'s **Scope** is the **Extracted scope** of the first user prompt that holds one, else typed into the dialog. Never replaced automatically; only **Update scope** changes it.
 - The **Classifier** maps one **Classification input** to one **Verdict**.
 - Only Red **Verdicts** carry a **Reason**.
 

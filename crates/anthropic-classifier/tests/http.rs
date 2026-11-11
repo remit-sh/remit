@@ -157,3 +157,57 @@ fn classify_fails_unavailable_when_no_verdict_tool_use() {
             .is_err()
     );
 }
+
+#[test]
+fn extract_scope_posts_with_required_headers_and_returns_the_scope() {
+    let mock = spawn_mock(
+        r#"{"content":[{"type":"tool_use","id":"toolu_3","name":"extract_scope","input":{"has_task":true,"scope":"Update ticket status"}}],"stop_reason":"tool_use"}"#,
+        200,
+    );
+    let classifier = AnthropicClassifier::new("sk-test".into(), "claude-haiku-4-5".into())
+        .with_endpoint(mock.url.clone());
+    let got = classifier
+        .extract_scope("update ticket status — this is for cleanup")
+        .unwrap();
+    assert_eq!(got, Some(Scope::try_new("Update ticket status").unwrap()));
+
+    let captured = mock.captured.lock().unwrap();
+    let req = captured.as_ref().expect("request was captured");
+    assert_eq!(req.method, "Post");
+    assert_eq!(req.api_key.as_deref(), Some("sk-test"));
+    assert_eq!(req.anthropic_version.as_deref(), Some("2023-06-01"));
+    let body: serde_json::Value = serde_json::from_str(&req.body).unwrap();
+    assert_eq!(body["model"], "claude-haiku-4-5");
+    assert_eq!(body["tool_choice"]["name"], "extract_scope");
+    assert_eq!(
+        body["messages"][0]["content"],
+        "<text>update ticket status — this is for cleanup</text>"
+    );
+}
+
+#[test]
+fn extract_scope_returns_none_when_server_reports_no_scope() {
+    let mock = spawn_mock(
+        r#"{"content":[{"type":"tool_use","id":"toolu_4","name":"extract_scope","input":{"has_task":false}}],"stop_reason":"tool_use"}"#,
+        200,
+    );
+    let classifier = AnthropicClassifier::new("sk-test".into(), "claude-haiku-4-5".into())
+        .with_endpoint(mock.url);
+    assert_eq!(classifier.extract_scope("hi").unwrap(), None);
+}
+
+#[test]
+fn extract_scope_fails_unavailable_on_http_500() {
+    let mock = spawn_mock(r#"{"error":"oops"}"#, 500);
+    let classifier = AnthropicClassifier::new("sk-test".into(), "claude-haiku-4-5".into())
+        .with_endpoint(mock.url);
+    assert!(classifier.extract_scope("fix the bug").is_err());
+}
+
+#[test]
+fn extract_scope_fails_unavailable_when_model_replies_with_prose() {
+    let mock = spawn_mock(r#"{"content":[{"type":"text","text":"Fix the bug"}]}"#, 200);
+    let classifier = AnthropicClassifier::new("sk-test".into(), "claude-haiku-4-5".into())
+        .with_endpoint(mock.url);
+    assert!(classifier.extract_scope("fix the bug").is_err());
+}

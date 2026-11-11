@@ -16,8 +16,8 @@ tags: [scope, prompter, hook, mvp, bundled-scope]
 - Every tool call has a Scope to classify against.
 - Each Agent has its **own** Scope. No inheritance from parent.
 - Two acquisition paths, picked by Agent topology:
-  - **Root**: user types it via a system dialog at first tool call.
-  - **Subagent** (in-process or peer-process): lifted automatically from the parent's spawn-tool payload (`Agent.prompt`) at spawn time. **Bundled scope.**
+  - **Root**: **Extracted scope** of the first user prompt that holds one ([TN-2026-017](TN-2026-017-extract-scope-from-text.md)). Fallback: user types it via a system dialog at first tool call.
+  - **Subagent** (in-process or peer-process): lifted automatically from the parent's spawn-tool payload (`Agent.prompt`) at spawn time. **Bundled scope**, distilled to its Extracted scope before staging (TN-2026-017).
 
 ## Why bundled, not inherited
 
@@ -37,7 +37,8 @@ child's PreToolUse(any tool)                          ──► classifier reads
                                                           present → Green; absent → Red
 ```
 
-- Root flow unchanged from the spike: hook detects no scope on a parent-less Agent at first PreToolUse → `ScopePrompter::prompt` (osascript dialog) → `ScopeWriter::assign` → Green.
+- Root: `UserPromptSubmit` extracts and assigns a Scope when none exists (TN-2026-017). Not shown above.
+- Root fallback, unchanged from the spike: hook detects no scope on a parent-less Agent at first PreToolUse → `ScopePrompter::prompt` (osascript dialog) → `ScopeWriter::assign` → Green.
 - `resolve_scope` is **direct lookup**. No parent walk.
 
 ## Domain ports
@@ -80,8 +81,9 @@ The `Agent` constructors enforce the self-referential-parent collapse. The hook 
 
 ## Fail-closed boundaries
 
-- Empty/whitespace bundled scope → not staged. Child hits `SubagentMissingScope` at first tool call.
-- Pending-store IO failure on `set` → exit 2 (parent's spawn call denied; no half-state).
+- Empty/whitespace/missing bundled scope, or one whose extraction fails or yields nothing → not staged, parent's pending slot cleared (TN-2026-017). Child hits `SubagentMissingScope` at first tool call.
+- Spawn **Action** denied → staged row discarded (TN-2026-017).
+- Pending-store IO failure on `set` or `clear` → exit 2 (parent's spawn call denied; no half-state).
 - `take` succeeds but `assign` fails → log + exit 2 + stderr (operator signal). Pending row already gone, child runs unscoped if the spawn proceeds; the explicit failure prevents silent drift.
 - Malformed agent ids in any payload → `fail_closed("…", AgentId::try_new(...))` → exit 2.
 - `Scope` validation failure on stored data → `ScopeStoreError::Unavailable` (corrupt row treated as fail-closed).

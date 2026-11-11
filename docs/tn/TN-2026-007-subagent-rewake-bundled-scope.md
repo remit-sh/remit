@@ -11,6 +11,8 @@ tags: [scope, hook, bundled-scope, send-message]
 
 > Re-wakes via `SendMessage` arrive with a fresh `agent_id` and no pending row. Children fail-closed on first tool call. Fix: treat `SendMessage.content` as the bundled scope for the round.
 
+> Update (#60, [TN-2026-017](TN-2026-017-extract-scope-from-text.md)): the staged scope is no longer the raw text. `Agent.prompt` / `SendMessage.content` pass through LLM extraction on the parent's `PreToolUse`. Text holding no scope, or an extraction failure, stages nothing and clears the parent's pending slot. So a child→parent report-back like "done, all tests pass" usually stages nothing instead of an orphan row.
+
 ## Failure mode
 
 - Parent calls `SendMessage` to a named (or in-process) subagent.

@@ -12,8 +12,9 @@ These files are an empirical reference. The diagnostic dumping code that produce
 | `team-spawn-incoming.log` | Same trace as above in our structured one-line-per-call format. |
 | `in-process-spawn-dump.log` | Same dump, but for a parent invoking a regular (in-process) `Agent` tool subagent. |
 | `in-process-spawn-incoming.log` | Structured version. |
+| `user-prompt-submit-dump.log` | Raw `UserPromptSubmit` stdin payloads for four root-session prompts: plain text, custom command with args, skill with args, bare custom command. See [UserPromptSubmit payload](#userpromptsubmit-payload). |
 
-Secrets (API key, Telegram token) are redacted in all four files.
+Secrets (API key, Telegram token) are redacted in the spawn dumps.
 
 ## Two subagent topologies in Claude Code
 
@@ -64,3 +65,13 @@ The nested case resolves to **root**, not immediate parent — because the env v
 - `SubagentStart` / `SubagentStop` fire only for **in-process** subagents — not team members.
 - The hook payload itself contains **no parent reference** for team members. The link only exists via env / process argv.
 - `agent_id` (in-process spawn ID) is only present for in-process subagents and is unique per spawn but does not encode lineage between nested spawns.
+
+## UserPromptSubmit payload
+
+Captured for #60 ([TN-2026-017](../tn/TN-2026-017-extract-scope-from-text.md)) with Claude Code 2.1.322 in headless mode (`claude -p`), via a project-local hook dumping stdin.
+
+- Fields: `session_id`, `transcript_path`, `cwd`, `prompt_id`, `permission_mode`, `hook_event_name`, `prompt`.
+- No `agent_id`, no `agent_type`. `CLAUDE_SESSION_ID` unset for a root session.
+- **Slash commands arrive raw.** `prompt` is exactly what was typed (`/diag-cmd 42`, `/diag-skill 42`, `/diag-cmd`). Command and skill bodies are not expanded into the payload, though the model did receive the expanded body.
+- **A nested session is indistinguishable from a top-level one.** `claude -p` launched from inside an agent's Bash tool and one launched from a clean shell present the same hook env: `CLAUDE_SESSION_ID` unset, `CLAUDECODE=1`, `CLAUDE_CODE_ENTRYPOINT=sdk-cli`, and `CLAUDE_CODE_SESSION_ID` / `CLAUDE_PID` rewritten to the nested session's own values. Checked by dumping those vars from the hook in both launches; env dump not kept in the log file.
+- Not captured: interactive (TUI) mode, built-in commands (`/clear`, `/cost`), peer-process team sessions.

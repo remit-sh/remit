@@ -268,6 +268,7 @@ impl ClassificationWire {
             Some("claimed-from-pending") => Some(ScopeOrigin::ClaimedFromPending),
             Some("fresh") => Some(ScopeOrigin::Fresh),
             Some("edited") => Some(ScopeOrigin::Edited),
+            Some("extracted") => Some(ScopeOrigin::Extracted),
             Some(other) => {
                 return Err(HistoryQueryError::Unavailable(Box::new(parse_err(
                     format!("unknown scope_origin {other:?}"),

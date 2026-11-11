@@ -45,7 +45,7 @@ New to Rust. Fluent in TypeScript, C#. Explain Rust syntax only when asked. Don'
 
 Rust workspace, hexagonal. 11 crates:
 - **Pure:** `domain/`, `remit-config/`.
-- **Inbound (binaries):** `claude-code-hook/` (PreToolUse), `remit-cli/` (`remit logs`).
+- **Inbound (binaries):** `claude-code-hook/` (PreToolUse, UserPromptSubmit), `remit-cli/` (`remit logs`).
 - **Outbound:** `anthropic-classifier/`, `file-classification-history/` (NDJSON), `file-scope-store/`, `file-standing-guidance/`, `prompt-lock/`, `swift-prompter/`, `osascript-prompter/`.
 
 Strict hexagonal: Adapter → Domain only. Never Domain → Adapter. Never Adapter → Adapter.

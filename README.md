@@ -20,7 +20,7 @@ crates/
 ├── remit-config/        # ~/.remit/config.toml loader
 ├── file-classification-history/ # outbound adapter — NDJSON write + query
 ├── file-scope-store/    # outbound adapter — JSON-per-session scope store
-├── claude-code-hook/    # inbound adapter — Claude Code PreToolUse hook
+├── claude-code-hook/    # inbound adapter — Claude Code PreToolUse + UserPromptSubmit hook
 └── remit-cli/           # inbound adapter — `remit` CLI (`remit logs`)
 ```
 
@@ -41,7 +41,7 @@ After cloning, install the **git** pre-push hook:
 
 ### 1. Wire the Claude Code hook
 
-Add this PreToolUse entry to `~/.claude/settings.json` (merge with any existing `hooks` block — Claude Code doesn't expand `~`, so use the absolute path):
+Add these entries to `~/.claude/settings.json` (merge with any existing `hooks` block — Claude Code doesn't expand `~`, so use the absolute path):
 
 ```json
 {
@@ -55,10 +55,23 @@ Add this PreToolUse entry to `~/.claude/settings.json` (merge with any existing 
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/<your-username>/.local/bin/remit-claude-code-hook"
+          }
+        ]
+      }
     ]
   }
 }
 ```
+
+- `PreToolUse` classifies every tool call.
+- `UserPromptSubmit` sets the session's **Scope** from your first prompt that holds a task, silently. Optional: without it, or when extraction finds nothing, a dialog asks for the Scope at the first tool call. It never blocks a prompt.
 
 The path is stable; the binary it points at changes via the scripts below.
 

@@ -17,9 +17,11 @@ use file_standing_guidance::FileStandingGuidanceReader;
 use prompt_lock::FsPromptLock;
 use swift_prompter::SwiftPrompter;
 
-use crate::bundled_scope::{claim_and_assign, stage_pending};
+use crate::bundled_scope::{claim_and_assign, discard_pending, stage_pending};
+use crate::user_prompt::handle_user_prompt_submit;
 
 mod bundled_scope;
+mod user_prompt;
 
 #[cfg(test)]
 mod tests;
@@ -27,7 +29,8 @@ mod tests;
 /// Scope-bearing parent tools → the field in their `tool_input` that carries
 /// the bundled scope for the child they spawn or re-wake. Hook lifts this on
 /// the parent's `PreToolUse` and stages it under the parent's id; the child's
-/// start hook claims it. `Agent` covers fresh in-process spawns and team
+/// start hook claims it. The text is distilled by the LLM before staging
+/// (TN-2026-017). `Agent` covers fresh in-process spawns and team
 /// peer-process spawns; `SendMessage` covers re-wakes of an existing subagent,
 /// where each round arrives as a new `SubagentStart` with a fresh `agent_id`.
 /// Vocab: [Bundled scope](../../../CONTEXT.md#agents).
@@ -80,11 +83,6 @@ struct SessionStartPayload {
 fn main() {
     let hook_started = Instant::now();
     let correlation_id = CorrelationId::new();
-    let cfg = fail_closed("config", remit_config::load());
-    let agents_dir = fail_closed("agents dir", remit_config::agents_dir());
-
-    let log_path = fail_closed("log path", remit_config::log_path());
-    let logger = FileClassificationHistoryWriter::new(log_path);
 
     let mut buf = String::new();
     fail_closed("read stdin", std::io::stdin().read_to_string(&mut buf));
@@ -96,6 +94,22 @@ fn main() {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+
+    // Dispatched before any `fail_closed` setup: this event yields no verdict
+    // and exit 2 would block the user's prompt. Failure leaves the agent
+    // unscoped, which the first tool call turns into the dialog or Red.
+    if event == "UserPromptSubmit" {
+        if let Err(e) = handle_user_prompt_submit(raw_payload, &correlation_id) {
+            eprintln!("remit: UserPromptSubmit: {e}; no scope assigned");
+        }
+        return;
+    }
+
+    let cfg = fail_closed("config", remit_config::load());
+    let agents_dir = fail_closed("agents dir", remit_config::agents_dir());
+
+    let log_path = fail_closed("log path", remit_config::log_path());
+    let logger = FileClassificationHistoryWriter::new(log_path);
 
     warn_on_history_err(logger.write_event(lifecycle_event(
         format!("hook-event: {event}"),
@@ -169,11 +183,12 @@ fn handle_pre_tool_use(
         AgentId::try_new(payload.session_id),
     );
 
-    let bundled_scope_present =
-        bundled_scope_from(&payload.tool_name, &payload.tool_input).is_some();
-    if let Some(text) = bundled_scope_from(&payload.tool_name, &payload.tool_input) {
-        stage_pending(&payload_session, text, agent_store, logger);
+    let bundled_text = bundled_text_from(&payload.tool_name, &payload.tool_input);
+    let bundled_scope_present = bundled_text.is_some_and(|text| !text.trim().is_empty());
+    if let Some(text) = bundled_text {
+        stage_pending(&payload_session, text, &llm, agent_store, logger);
     }
+    let spawn_parent = bundled_text.is_some().then(|| payload_session.clone());
 
     let args_size_pre = u32::try_from(payload.tool_input.to_string().len()).unwrap_or(u32::MAX);
     let mut tool_input = payload.tool_input;
@@ -181,16 +196,13 @@ fn handle_pre_tool_use(
     let stripped_serialised = tool_input.to_string();
     let args_size_post = u32::try_from(stripped_serialised.len()).unwrap_or(u32::MAX);
 
-    let agent = match payload.agent_id {
-        Some(agent_id) => Agent::subagent(
-            fail_closed("PreToolUse agent id", AgentId::try_new(agent_id)),
-            payload_session,
-        ),
-        None => match parent_from_env(&payload_session) {
-            Some(parent) => Agent::subagent(payload_session, parent),
-            None => Agent::root(payload_session),
-        },
-    };
+    let agent = agent_from(
+        payload_session,
+        payload
+            .agent_id
+            .map(|agent_id| fail_closed("PreToolUse agent id", AgentId::try_new(agent_id))),
+        parent_from_env,
+    );
 
     let cwd = payload.cwd.clone();
     let tool_name_kind = ActionKind::new(payload.tool_name.clone());
@@ -277,6 +289,12 @@ fn handle_pre_tool_use(
         details: BTreeMap::new(),
     };
     warn_on_history_err(logger.write(record));
+
+    // A denied spawn never starts its child; drop what was staged for it so
+    // a later child of this parent cannot claim it.
+    if let (Enforced::Deny, Some(parent)) = (enforced, &spawn_parent) {
+        discard_pending(parent, agent_store, logger);
+    }
 
     match (enforced, &outcome.verdict) {
         (Enforced::Permit, Verdict::Green) => {}
@@ -440,18 +458,32 @@ fn strip_narration_inner(value: &mut serde_json::Value, count: &mut u32) {
     }
 }
 
-/// Extract bundled-scope text for a spawn-shaped tool call. Returns `None` for
-/// non-spawn tools, missing/non-string fields, and empty/whitespace text —
-/// all of which leave the child unscoped, so the classifier emits Red.
-fn bundled_scope_from(tool_name: &str, tool_input: &serde_json::Value) -> Option<String> {
+/// Lift the bundled-scope text out of a spawn-shaped tool call. `None` for
+/// non-spawn tools. A spawn-shaped tool always yields text: a missing or
+/// non-string field is the empty string, so staging still runs and clears
+/// the parent's pending slot, leaving the child unscoped (Red).
+fn bundled_text_from<'a>(tool_name: &str, tool_input: &'a serde_json::Value) -> Option<&'a str> {
     let field = BUNDLED_SCOPE_FIELDS
         .iter()
         .find_map(|(t, f)| (*t == tool_name).then_some(*f))?;
-    tool_input
-        .get(field)
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.trim().is_empty())
-        .map(str::to_string)
+    Some(tool_input.get(field).and_then(|v| v.as_str()).unwrap_or(""))
+}
+
+/// Identity collapse: translate Claude Code ids into the domain [`Agent`].
+/// A payload `agent_id` is an in-process subagent of the session; a session
+/// with an env-supplied parent is a peer-process subagent; otherwise root.
+fn agent_from(
+    session: AgentId,
+    agent_id: Option<AgentId>,
+    parent_of: impl FnOnce(&AgentId) -> Option<AgentId>,
+) -> Agent {
+    match agent_id {
+        Some(agent_id) => Agent::subagent(agent_id, session),
+        None => match parent_of(&session) {
+            Some(parent) => Agent::subagent(session, parent),
+            None => Agent::root(session),
+        },
+    }
 }
 
 /// Unwrap or exit 2 with `remit: <ctx>: <err>; deny`. The fail-closed primitive
@@ -468,13 +500,18 @@ fn fail_closed<T, E: Display>(ctx: &str, result: Result<T, E>) -> T {
 /// Missing config that prevents construction denies the action — we never
 /// classify without a working classifier.
 fn build_llm_classifier(cfg: &remit_config::RemitConfig) -> AnthropicClassifier {
+    fail_closed("classifier", try_build_llm_classifier(cfg))
+}
+
+/// The single adapter-selection site. Callers decide what a build failure
+/// means: deny for `PreToolUse`, "no scope assigned" for `UserPromptSubmit`.
+fn try_build_llm_classifier(
+    cfg: &remit_config::RemitConfig,
+) -> Result<AnthropicClassifier, anthropic_classifier::ConfigError> {
     match cfg.classifier.adapter {
-        remit_config::ClassifierAdapter::Anthropic => fail_closed(
-            "classifier",
-            AnthropicClassifier::from_config(
-                cfg.classifier.anthropic.api_key.clone(),
-                cfg.classifier.anthropic.model.clone(),
-            ),
+        remit_config::ClassifierAdapter::Anthropic => AnthropicClassifier::from_config(
+            cfg.classifier.anthropic.api_key.clone(),
+            cfg.classifier.anthropic.model.clone(),
         ),
     }
 }

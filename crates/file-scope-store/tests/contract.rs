@@ -39,3 +39,16 @@ fn disable_creates_per_agent_dir_lazily() {
     assert!(dir.path().join("sess-2").join("disabled.marker").exists());
     assert!(store.is_disabled(&id).unwrap());
 }
+
+#[test]
+fn clear_pending_failure_is_unavailable_not_silent() {
+    let dir = tempdir().unwrap();
+    let store = FileAgentStore::new(dir.path().to_path_buf());
+    let id = AgentId::try_new("parent").unwrap();
+    // A directory where the row should be: `remove_file` fails, row "remains".
+    fs::create_dir_all(dir.path().join("parent").join("pending.json")).unwrap();
+    assert!(matches!(
+        store.clear_pending(&id),
+        Err(ScopeStoreError::Unavailable(_))
+    ));
+}

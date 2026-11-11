@@ -221,6 +221,7 @@ fn all_scope_origin_variants_round_trip() {
         ScopeOrigin::ClaimedFromPending,
         ScopeOrigin::Fresh,
         ScopeOrigin::Edited,
+        ScopeOrigin::Extracted,
     ]
     .iter()
     .enumerate()
@@ -240,6 +241,7 @@ fn all_scope_origin_variants_round_trip() {
             Some(ScopeOrigin::ClaimedFromPending),
             Some(ScopeOrigin::Fresh),
             Some(ScopeOrigin::Edited),
+            Some(ScopeOrigin::Extracted),
         ]
     );
 }

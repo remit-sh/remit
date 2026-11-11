@@ -1,0 +1,16 @@
+# Raw UserPromptSubmit hook payloads (stdin), Claude Code 2.1.322, headless (claude -p), 2026-11-11.
+# One root session per prompt. Throwaway project path shortened to <project>; transcript dir to <transcripts>.
+# Project defined a custom command (.claude/commands/diag-cmd.md) and a skill (.claude/skills/diag-skill/SKILL.md).
+
+--- CLAUDE_SESSION_ID=<unset>
+{"session_id":"4a7b3990-fa86-42ae-8393-068a4dc04fd8","transcript_path":"<transcripts>/4a7b3990-fa86-42ae-8393-068a4dc04fd8.jsonl","cwd":"<project>","prompt_id":"29fd0ee8-52f6-4e55-a219-a700effbbe5e","permission_mode":"default","hook_event_name":"UserPromptSubmit","prompt":"Reply with the single word ok."}
+
+--- CLAUDE_SESSION_ID=<unset>
+{"session_id":"d9a45fed-5f4c-4f53-9b68-4a93298e9305","transcript_path":"<transcripts>/d9a45fed-5f4c-4f53-9b68-4a93298e9305.jsonl","cwd":"<project>","prompt_id":"fc79aa9e-7958-49fd-b718-569b6626db97","permission_mode":"default","hook_event_name":"UserPromptSubmit","prompt":"/diag-cmd 42"}
+
+--- CLAUDE_SESSION_ID=<unset>
+{"session_id":"52cee85f-4bb8-4c99-9a87-364da3abcd85","transcript_path":"<transcripts>/52cee85f-4bb8-4c99-9a87-364da3abcd85.jsonl","cwd":"<project>","prompt_id":"7df4ec41-17f1-4e41-9042-bc8881df039c","permission_mode":"default","hook_event_name":"UserPromptSubmit","prompt":"/diag-skill 42"}
+
+--- CLAUDE_SESSION_ID=<unset>
+{"session_id":"f278513e-8d0e-4bec-9baa-da126768ffb5","transcript_path":"<transcripts>/f278513e-8d0e-4bec-9baa-da126768ffb5.jsonl","cwd":"<project>","prompt_id":"48be7096-494a-4b4e-a19e-e3fe24fffd7c","permission_mode":"default","hook_event_name":"UserPromptSubmit","prompt":"/diag-cmd"}
+

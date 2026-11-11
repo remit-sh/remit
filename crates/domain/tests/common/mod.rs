@@ -28,6 +28,8 @@ pub struct FakeAgentStore {
     disable_writes: Rc<RefCell<Vec<AgentId>>>,
     fail_scope_read: Rc<RefCell<bool>>,
     fail_scope_write: Rc<RefCell<bool>>,
+    fail_pending_clear: Rc<RefCell<bool>>,
+    fail_pending_write: Rc<RefCell<bool>>,
     fail_disable_read: Rc<RefCell<bool>>,
     fail_disable_write: Rc<RefCell<bool>>,
     /// Optional scripted disable-read responses; pop from the front. Falls back
@@ -45,6 +47,8 @@ impl FakeAgentStore {
             disable_writes: Rc::new(RefCell::new(Vec::new())),
             fail_scope_read: Rc::new(RefCell::new(false)),
             fail_scope_write: Rc::new(RefCell::new(false)),
+            fail_pending_clear: Rc::new(RefCell::new(false)),
+            fail_pending_write: Rc::new(RefCell::new(false)),
             fail_disable_read: Rc::new(RefCell::new(false)),
             fail_disable_write: Rc::new(RefCell::new(false)),
             scripted_disable_reads: Rc::new(RefCell::new(VecDeque::new())),
@@ -77,6 +81,26 @@ impl FakeAgentStore {
     pub fn fail_scope_writes(self) -> Self {
         *self.fail_scope_write.borrow_mut() = true;
         self
+    }
+
+    pub fn with_pending(self, parent: AgentId, scope: Scope) -> Self {
+        self.pending.borrow_mut().insert(parent, scope);
+        self
+    }
+
+    pub fn fail_pending_clears(self) -> Self {
+        *self.fail_pending_clear.borrow_mut() = true;
+        self
+    }
+
+    pub fn fail_pending_writes(self) -> Self {
+        *self.fail_pending_write.borrow_mut() = true;
+        self
+    }
+
+    /// Shared handle to the pending map.
+    pub fn pending(&self) -> Rc<RefCell<HashMap<AgentId, Scope>>> {
+        Rc::clone(&self.pending)
     }
 
     pub fn fail_disable_reads(self) -> Self {
@@ -132,12 +156,27 @@ impl AgentStore for FakeAgentStore {
     }
 
     fn set_pending(&self, parent: &AgentId, scope: Scope) -> Result<(), ScopeStoreError> {
+        if *self.fail_pending_write.borrow() {
+            return Err(ScopeStoreError::Unavailable(
+                "fake pending write failure".into(),
+            ));
+        }
         self.pending.borrow_mut().insert(parent.clone(), scope);
         Ok(())
     }
 
     fn take_pending(&self, parent: &AgentId) -> Result<Option<Scope>, ScopeStoreError> {
         Ok(self.pending.borrow_mut().remove(parent))
+    }
+
+    fn clear_pending(&self, parent: &AgentId) -> Result<(), ScopeStoreError> {
+        if *self.fail_pending_clear.borrow() {
+            return Err(ScopeStoreError::Unavailable(
+                "fake pending clear failure".into(),
+            ));
+        }
+        self.pending.borrow_mut().remove(parent);
+        Ok(())
     }
 
     fn is_disabled(&self, agent_id: &AgentId) -> Result<bool, ScopeStoreError> {
@@ -439,6 +478,16 @@ pub struct FakeLlmClassifier {
     last: RefCell<Option<LlmOutcome>>,
     calls: Rc<RefCell<usize>>,
     last_standing: Rc<RefCell<StandingGuidance>>,
+    extraction: ExtractionOutcome,
+    extract_texts: Rc<RefCell<Vec<String>>>,
+    extract_side_effect: Option<Box<dyn Fn()>>,
+}
+
+/// Scripted answer for [`LlmClassifier::extract_scope`].
+pub enum ExtractionOutcome {
+    Scope(Scope),
+    NoScope,
+    Unavailable,
 }
 
 impl FakeLlmClassifier {
@@ -462,7 +511,30 @@ impl FakeLlmClassifier {
             last: RefCell::new(None),
             calls: Rc::new(RefCell::new(0)),
             last_standing: Rc::new(RefCell::new(StandingGuidance::default())),
+            extraction: ExtractionOutcome::Unavailable,
+            extract_texts: Rc::new(RefCell::new(Vec::new())),
+            extract_side_effect: None,
         }
+    }
+
+    /// Fake whose `extract_scope` answers with `outcome`. `classify` answers
+    /// Green.
+    pub fn extracting(outcome: ExtractionOutcome) -> Self {
+        let mut me = Self::green();
+        me.extraction = outcome;
+        me
+    }
+
+    /// Runs `f` inside every `extract_scope` call, before it returns. Models
+    /// state that changes while the LLM call is in flight.
+    pub fn with_extract_side_effect<F: Fn() + 'static>(mut self, f: F) -> Self {
+        self.extract_side_effect = Some(Box::new(f));
+        self
+    }
+
+    /// Every text passed to `extract_scope`, in call order.
+    pub fn extract_texts(&self) -> Rc<RefCell<Vec<String>>> {
+        Rc::clone(&self.extract_texts)
     }
 
     pub fn then_green(self) -> Self {
@@ -527,6 +599,20 @@ impl LlmClassifier for FakeLlmClassifier {
                 llm: Some(stats),
             }),
             LlmOutcome::Unavailable => {
+                Err(LlmClassifierError::Unavailable("fake LLM failure".into()))
+            }
+        }
+    }
+
+    fn extract_scope(&self, text: &str) -> Result<Option<Scope>, LlmClassifierError> {
+        self.extract_texts.borrow_mut().push(text.to_string());
+        if let Some(side_effect) = &self.extract_side_effect {
+            side_effect();
+        }
+        match &self.extraction {
+            ExtractionOutcome::Scope(scope) => Ok(Some(scope.clone())),
+            ExtractionOutcome::NoScope => Ok(None),
+            ExtractionOutcome::Unavailable => {
                 Err(LlmClassifierError::Unavailable("fake LLM failure".into()))
             }
         }
